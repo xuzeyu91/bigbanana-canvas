@@ -30,7 +30,7 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	session, err := service.Register(request.Username, request.Password)
 	if err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	OK(w, session)
@@ -41,7 +41,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	session, err := service.Login(request.Username, request.Password)
 	if err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	if session.User.Role != model.UserRoleAdmin {
@@ -56,7 +56,7 @@ func AdminLogin(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	session, err := service.Login(request.Username, request.Password)
 	if err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	if session.User.Role != model.UserRoleAdmin {
@@ -77,7 +77,7 @@ func CurrentUser(w http.ResponseWriter, r *http.Request) {
 func AdminUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := service.ListUsers(parseQuery(r))
 	if err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	OK(w, users)
@@ -92,7 +92,7 @@ func AdminSaveUser(w http.ResponseWriter, r *http.Request) {
 		Role:     request.Role,
 	}, request.Password)
 	if err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	OK(w, user)
@@ -100,7 +100,7 @@ func AdminSaveUser(w http.ResponseWriter, r *http.Request) {
 
 func AdminDeleteUser(w http.ResponseWriter, r *http.Request, id string) {
 	if err := service.DeleteUser(id); err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	OK(w, true)

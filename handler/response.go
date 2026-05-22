@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -20,6 +21,11 @@ func OK(w http.ResponseWriter, data any) {
 
 func Fail(w http.ResponseWriter, msg string) {
 	writeJSON(w, response{Code: 1, Data: nil, Msg: msg})
+}
+
+func FailError(w http.ResponseWriter, err error) {
+	log.Printf("request failed: %v", err)
+	Fail(w, "操作失败")
 }
 
 func writeJSON(w http.ResponseWriter, value any) {

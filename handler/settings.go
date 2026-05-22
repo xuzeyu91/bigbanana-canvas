@@ -11,7 +11,7 @@ import (
 func Settings(w http.ResponseWriter, r *http.Request) {
 	settings, err := service.PublicSettings()
 	if err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	OK(w, settings)
@@ -20,7 +20,7 @@ func Settings(w http.ResponseWriter, r *http.Request) {
 func AdminSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := service.AdminSettings()
 	if err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	OK(w, settings)
@@ -31,7 +31,7 @@ func AdminSaveSettings(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&settings)
 	result, err := service.SaveSettings(settings)
 	if err != nil {
-		Fail(w, err.Error())
+		FailError(w, err)
 		return
 	}
 	OK(w, result)
