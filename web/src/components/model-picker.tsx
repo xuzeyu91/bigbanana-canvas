@@ -20,7 +20,7 @@ type ModelPickerProps = {
 export function ModelPicker({ config, value, onChange, className, fullWidth = false, placeholder = "选择模型", onMissingConfig }: ModelPickerProps) {
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const options = useMemo(() => Array.from(new Set([...(config.channelMode === "local" ? [value] : []), ...config.models].filter(Boolean))), [config.channelMode, config.models, value]);
+    const options = useMemo(() => Array.from(new Set([...(config.channelMode === "local" ? [value] : []), ...config.models].filter((model): model is string => Boolean(model)))), [config.channelMode, config.models, value]);
     const current = value || "";
 
     useEffect(() => {

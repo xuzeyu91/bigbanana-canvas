@@ -18,7 +18,7 @@ import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from ".
 type CanvasConfigNodePanelProps = {
     node: CanvasNodeData;
     isRunning: boolean;
-    inputSummary: { textCount: number; imageCount: number };
+    inputSummary: { textCount: number; imageCount: number; videoCount: number };
     inputs: NodeGenerationInput[];
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeMetadata>) => void;
     onTextInputChange: (nodeId: string, content: string) => void;
@@ -41,6 +41,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
     const chipStyle = { background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text };
     const textInputs = inputs.filter((input) => input.type === "text");
     const imageInputs = inputs.filter((input) => input.type === "image");
+    const videoInputs = inputs.filter((input) => input.type === "video");
 
     const moveInput = (input: NodeGenerationInput, offset: number) => {
         const sameTypeInputs = inputs.filter((item) => item.type === input.type);
@@ -112,6 +113,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
             <div className="mb-2 flex flex-wrap gap-1.5" onMouseDown={(event) => event.stopPropagation()}>
                 <InputChip label="提示词" value={`${inputSummary.textCount} 个`} style={chipStyle} />
                 <InputChip label="参考图" value={`${inputSummary.imageCount} 张`} style={chipStyle} />
+                <InputChip label="参考视频" value={`${inputSummary.videoCount} 个`} style={chipStyle} />
                 <button type="button" className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px]" style={chipStyle} onClick={() => setPreviewOpen(true)}>
                     <Eye className="size-3.5" />
                     预览
@@ -130,7 +132,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
             <Button
                 type="primary"
                 className="mt-auto !h-9 !w-full !cursor-pointer !rounded-lg"
-                disabled={isRunning || (!inputSummary.textCount && !inputSummary.imageCount)}
+                disabled={isRunning || (!inputSummary.textCount && !inputSummary.imageCount && !inputSummary.videoCount)}
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={() => onGenerate(node.id)}
             >
@@ -167,6 +169,15 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
                                     <div className="thin-scrollbar flex gap-1.5 overflow-x-auto pb-1">
                                         {imageInputs.map((input, index) => (
                                             <ImageSortCard key={input.nodeId} input={input} imageIndex={index} imageTotal={imageInputs.length} inputs={inputs} theme={theme} onMove={moveInput} />
+                                        ))}
+                                    </div>
+                                </PreviewSection>
+                            </div>
+                            <div className="shrink-0">
+                                <PreviewSection title="参考视频" count={videoInputs.length} empty="暂无参考视频">
+                                    <div className="thin-scrollbar flex gap-1.5 overflow-x-auto pb-1">
+                                        {videoInputs.map((input, index) => (
+                                            <VideoSortCard key={input.nodeId} input={input} videoIndex={index} videoTotal={videoInputs.length} theme={theme} onMove={moveInput} />
                                         ))}
                                     </div>
                                 </PreviewSection>
@@ -283,6 +294,31 @@ function ImageSortCard({
                 <img src={input.image.dataUrl} alt={input.title} className="aspect-square w-full object-cover" />
                 <span className="absolute left-1 top-1 rounded bg-black/50 px-1 py-0.5 text-[9px] font-medium text-white">{imageIndex + 1}</span>
                 <HorizontalOrderButtons index={imageIndex} total={imageTotal} onMove={(offset) => onMove(input, offset)} />
+            </div>
+        </div>
+    );
+}
+
+function VideoSortCard({
+    input,
+    videoIndex,
+    videoTotal,
+    theme,
+    onMove,
+}: {
+    input: NodeGenerationInput;
+    videoIndex: number;
+    videoTotal: number;
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    onMove: (input: NodeGenerationInput, offset: number) => void;
+}) {
+    if (!input.video) return null;
+    return (
+        <div className="w-32 shrink-0 overflow-hidden rounded-lg border" style={{ background: theme.node.fill, borderColor: theme.node.stroke }}>
+            <div className="relative">
+                <video src={input.video.url} className="aspect-video w-full bg-black object-cover" muted preload="metadata" />
+                <span className="absolute left-1 top-1 rounded bg-black/50 px-1 py-0.5 text-[9px] font-medium text-white">{videoIndex + 1}</span>
+                <HorizontalOrderButtons index={videoIndex} total={videoTotal} onMove={(offset) => onMove(input, offset)} />
             </div>
         </div>
     );

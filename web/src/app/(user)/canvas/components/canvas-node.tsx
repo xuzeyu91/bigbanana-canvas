@@ -466,7 +466,7 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
                 <Video className="size-7 opacity-35" />
-                <span className="text-sm">视频节点(未开发完，请勿使用)</span>
+                <span className="text-sm">空视频节点</span>
             </div>
         );
     return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;

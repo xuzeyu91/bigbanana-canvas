@@ -1,12 +1,15 @@
 import type { ChatCompletionMessage } from "@/services/api/image";
 import type { ReferenceImage } from "@/types/image";
+import type { ReferenceVideo } from "@/types/media";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../types";
 
 export type NodeGenerationContext = {
     prompt: string;
     referenceImages: ReferenceImage[];
+    referenceVideos: ReferenceVideo[];
     textCount: number;
     imageCount: number;
+    videoCount: number;
 };
 
 export type NodeGenerationInput = {
@@ -15,6 +18,7 @@ export type NodeGenerationInput = {
     title: string;
     text?: string;
     image?: ReferenceImage;
+    video?: ReferenceVideo;
 };
 
 export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string): NodeGenerationContext {
@@ -24,12 +28,15 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
         .filter(Boolean)
         .join("\n\n");
     const referenceImages = inputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
+    const referenceVideos = inputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
 
     return {
         prompt: upstreamText ? `${prompt}\n\n${upstreamText}` : prompt,
         referenceImages,
+        referenceVideos,
         textCount: inputs.filter((input) => input.type === "text").length,
         imageCount: referenceImages.length,
+        videoCount: referenceVideos.length,
     };
 }
 
@@ -37,6 +44,8 @@ export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[
     return getOrderedUpstreamNodes(nodeId, nodes, connections).flatMap((node): NodeGenerationInput[] => {
         const image = readReferenceImage(node);
         if (image) return [{ nodeId: node.id, type: "image" as const, title: node.title, image }];
+        const video = readReferenceVideo(node);
+        if (video) return [{ nodeId: node.id, type: "video" as const, title: node.title, video }];
         const text = readNodeTextInput(node);
         if (text) return [{ nodeId: node.id, type: "text" as const, title: node.title, text }];
         return [];
@@ -73,6 +82,17 @@ function readReferenceImage(node: CanvasNodeData): ReferenceImage | null {
         name: `${node.title || node.id}.png`,
         type: node.metadata.mimeType || "image/png",
         dataUrl: node.metadata.content,
+        storageKey: node.metadata.storageKey,
+    };
+}
+
+function readReferenceVideo(node: CanvasNodeData): ReferenceVideo | null {
+    if (node.type !== CanvasNodeType.Video || !node.metadata?.content) return null;
+    return {
+        id: node.id,
+        name: `${node.title || node.id}.mp4`,
+        type: node.metadata.mimeType || "video/mp4",
+        url: node.metadata.content,
         storageKey: node.metadata.storageKey,
     };
 }

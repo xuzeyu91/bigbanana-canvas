@@ -26,7 +26,8 @@ export async function exportAssets(assets: Asset[]) {
 
     await Promise.all(
         assets.map(async (asset) => {
-            const storageKey = asset.kind === "image" || asset.kind === "video" ? asset.data.storageKey : undefined;
+            if (asset.kind !== "image" && asset.kind !== "video") return;
+            const storageKey = asset.data.storageKey;
             if (!storageKey) return;
             const blob = asset.kind === "image" ? await getImageBlob(storageKey) : await getMediaBlob(storageKey);
             if (!blob) return;
