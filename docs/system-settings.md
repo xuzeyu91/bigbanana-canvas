@@ -41,11 +41,12 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `availableModels` | string[] | 系统可用模型，由管理员手动选择；页面下拉选项可来自私有渠道模型 |
+| `availableModels` | string[] | 系统可用模型；保存设置时会自动合并所有已启用私有渠道的模型 |
 | `modelCosts` | object[] | 模型算力点配置，后端模型接口调用前按模型预扣，上游失败时返还；未配置默认不扣除 |
-| `defaultModel` | string | 默认模型，从 `availableModels` 中选择 |
-| `defaultImageModel` | string | 默认图片模型，从 `availableModels` 中选择 |
-| `defaultTextModel` | string | 默认文本模型，从 `availableModels` 中选择 |
+| `defaultModel` | string | 默认模型，从 `availableModels` 中选择；为空或失效时优先选择文本模型 |
+| `defaultImageModel` | string | 默认图片模型，从 `availableModels` 中选择；为空或失效时优先选择 `seedream`、`image`、`gpt-image` 模型 |
+| `defaultVideoModel` | string | 默认视频模型，从 `availableModels` 中选择；为空或失效时优先选择 `seedance`、`video` 模型 |
+| `defaultTextModel` | string | 默认文本模型，从 `availableModels` 中选择；为空或失效时优先选择非图片/视频模型 |
 | `systemPrompt` | string | 系统提示词 |
 | `allowCustomChannel` | boolean | 是否允许用户在配置弹窗中切换为本地直连渠道，默认允许 |
 

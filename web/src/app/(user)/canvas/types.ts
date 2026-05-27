@@ -14,6 +14,7 @@ export enum CanvasNodeType {
     Text = "text",
     Config = "config",
     Video = "video",
+    Audio = "audio",
 }
 
 export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
@@ -34,6 +35,8 @@ export type CanvasNodeMetadata = {
     count?: number;
     seconds?: string;
     vquality?: string;
+    generateAudio?: string;
+    watermark?: string;
     references?: string[];
     naturalWidth?: number;
     naturalHeight?: number;
@@ -48,6 +51,7 @@ export type CanvasNodeMetadata = {
     storageKey?: string;
     mimeType?: string;
     bytes?: number;
+    durationMs?: number;
 };
 
 export type CanvasNodeData = {

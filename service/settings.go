@@ -20,7 +20,7 @@ var adminModelHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 func PublicSettings() (model.PublicSetting, error) {
 	settings, err := repository.GetSettings()
-	return normalizePublicSetting(settings.Public), err
+	return normalizeSettings(settings).Public, err
 }
 
 func AdminSettings() (model.Settings, error) {
@@ -63,12 +63,16 @@ func AdminTestChannelModel(index *int, channel model.ModelChannel, modelName str
 }
 
 func normalizeSettings(settings model.Settings) model.Settings {
-	settings.Public = normalizePublicSetting(settings.Public)
 	settings.Private = normalizePrivateSetting(settings.Private)
+	settings.Public = normalizePublicSettingWithChannels(settings.Public, settings.Private.Channels)
 	return settings
 }
 
 func normalizePublicSetting(setting model.PublicSetting) model.PublicSetting {
+	return normalizePublicSettingWithChannels(setting, nil)
+}
+
+func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []model.ModelChannel) model.PublicSetting {
 	if setting.ModelChannel.AvailableModels == nil {
 		setting.ModelChannel.AvailableModels = []string{}
 	}
@@ -89,6 +93,16 @@ func normalizePublicSetting(setting model.PublicSetting) model.PublicSetting {
 		enabled := true
 		setting.Auth.AllowRegister = &enabled
 	}
+	enabledModels := enabledChannelModels(channels)
+	if len(enabledModels) > 0 {
+		setting.ModelChannel.AvailableModels = enabledModels
+	} else {
+		setting.ModelChannel.AvailableModels = uniqueModelNames(setting.ModelChannel.AvailableModels)
+	}
+	setting.ModelChannel.DefaultTextModel = repairDefaultModel(setting.ModelChannel.DefaultTextModel, setting.ModelChannel.AvailableModels, isTextModelName)
+	setting.ModelChannel.DefaultImageModel = repairDefaultModel(setting.ModelChannel.DefaultImageModel, setting.ModelChannel.AvailableModels, isImageModelName)
+	setting.ModelChannel.DefaultVideoModel = repairDefaultModel(setting.ModelChannel.DefaultVideoModel, setting.ModelChannel.AvailableModels, isVideoModelName)
+	setting.ModelChannel.DefaultModel = repairDefaultModel(setting.ModelChannel.DefaultModel, setting.ModelChannel.AvailableModels, isTextModelName)
 	return setting
 }
 
@@ -222,6 +236,63 @@ func isArkAgentPlanChannel(channel model.ModelChannel) bool {
 func isSeedanceModelName(modelName string) bool {
 	modelName = strings.ToLower(strings.TrimSpace(modelName))
 	return strings.Contains(modelName, "seedance") || strings.Contains(modelName, "doubao-seedance")
+}
+
+func enabledChannelModels(channels []model.ModelChannel) []string {
+	models := []string{}
+	for _, channel := range channels {
+		if !channel.Enabled {
+			continue
+		}
+		models = append(models, channel.Models...)
+	}
+	return uniqueModelNames(models)
+}
+
+func uniqueModelNames(models []string) []string {
+	result := []string{}
+	seen := map[string]bool{}
+	for _, item := range models {
+		name := strings.TrimSpace(item)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		result = append(result, name)
+	}
+	return result
+}
+
+func repairDefaultModel(current string, models []string, preferred func(string) bool) string {
+	current = strings.TrimSpace(current)
+	for _, item := range models {
+		if item == current {
+			return current
+		}
+	}
+	for _, item := range models {
+		if preferred(item) {
+			return item
+		}
+	}
+	if len(models) > 0 {
+		return models[0]
+	}
+	return ""
+}
+
+func isVideoModelName(modelName string) bool {
+	name := strings.ToLower(strings.TrimSpace(modelName))
+	return strings.Contains(name, "seedance") || strings.Contains(name, "video")
+}
+
+func isImageModelName(modelName string) bool {
+	name := strings.ToLower(strings.TrimSpace(modelName))
+	return strings.Contains(name, "seedream") || strings.Contains(name, "gpt-image") || strings.Contains(name, "image")
+}
+
+func isTextModelName(modelName string) bool {
+	return !isImageModelName(modelName) && !isVideoModelName(modelName)
 }
 
 func normalizeModelChannel(channel model.ModelChannel) model.ModelChannel {

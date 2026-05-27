@@ -3,10 +3,11 @@ import axios from "axios";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
+import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { buildApiUrl, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
-import type { ReferenceVideo } from "@/types/media";
+import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string } };
 type ApiVideoResponse = VideoResponse | { code?: number; data?: VideoResponse | null; msg?: string };
@@ -42,14 +43,14 @@ function refreshRemoteUser(config: AiConfig) {
     if (config.channelMode === "remote") void useUserStore.getState().hydrateUser();
 }
 
-export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = []): Promise<VideoGenerationResult> {
+export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = []): Promise<VideoGenerationResult> {
     const model = (config.model || config.videoModel).trim();
     assertVideoConfig(config, model);
-    if (isSeedanceConfig(config, model)) {
-        return requestSeedanceGeneration(config, model, prompt, references, videoReferences);
+    if (isSeedanceVideoConfig({ ...config, model })) {
+        return requestSeedanceGeneration(config, model, prompt, references, videoReferences, audioReferences);
     }
-    if (videoReferences.length) {
-        throw new Error("当前视频接口不支持参考视频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考视频");
+    if (videoReferences.length || audioReferences.length) {
+        throw new Error("当前视频接口不支持参考视频或参考音频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考素材");
     }
     return requestOpenAIVideoGeneration(config, model, prompt, references);
 }
@@ -89,16 +90,22 @@ async function requestOpenAIVideoGeneration(config: AiConfig, model: string, pro
     }
 }
 
-async function requestSeedanceGeneration(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[]) {
-    const content = await buildSeedanceContent(config, prompt, references, videoReferences);
-    if (!content.length) throw new Error("请输入视频提示词，或连接参考图片/视频");
+async function requestSeedanceGeneration(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
+    if (audioReferences.length && !references.length && !videoReferences.length) {
+        throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
+    }
+    assertSeedanceVideoReferences(videoReferences);
+    assertSeedanceAudioReferences(audioReferences);
+    const content = await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences);
+    if (!content.length) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
     const payload = {
         model,
         content,
         ratio: normalizeSeedanceRatio(config.size),
-        resolution: normalizeVideoResolution(config.vquality),
+        resolution: normalizeSeedanceResolution(config.vquality, model),
         duration: normalizeSeedanceDuration(config.videoSeconds),
-        watermark: false,
+        generate_audio: boolConfig(config.videoGenerateAudio, true),
+        watermark: boolConfig(config.videoWatermark, false),
     };
 
     try {
@@ -122,20 +129,43 @@ async function requestSeedanceGeneration(config: AiConfig, model: string, prompt
     }
 }
 
+function assertSeedanceVideoReferences(videoReferences: ReferenceVideo[]) {
+    let total = 0;
+    for (const video of videoReferences) {
+        if (!video.durationMs) continue;
+        if (video.durationMs < 2000 || video.durationMs > 15000) throw new Error("Seedance 参考视频单个时长需要在 2-15 秒之间");
+        total += video.durationMs;
+    }
+    if (total > 15000) throw new Error("Seedance 参考视频总时长不能超过 15 秒");
+}
+
+function assertSeedanceAudioReferences(audioReferences: ReferenceAudio[]) {
+    let total = 0;
+    for (const audio of audioReferences) {
+        if (!audio.durationMs) continue;
+        if (audio.durationMs < 2000 || audio.durationMs > 15000) throw new Error("Seedance 参考音频单个时长需要在 2-15 秒之间");
+        total += audio.durationMs;
+    }
+    if (total > 15000) throw new Error("Seedance 参考音频总时长不能超过 15 秒");
+}
+
 function seedanceApiUrl(config: AiConfig, taskId?: string) {
     if (config.channelMode === "remote") return taskId ? `/api/v1/videos/${encodeURIComponent(taskId)}` : "/api/v1/videos";
     return buildApiUrl(config.baseUrl, `/contents/generations/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
 }
 
-async function buildSeedanceContent(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[]) {
+async function buildSeedanceContent(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
     const content: Array<Record<string, unknown>> = [];
     const text = prompt.trim();
     if (text) content.push({ type: "text", text });
-    for (const image of references.slice(0, 7)) {
+    for (const image of references.slice(0, SEEDANCE_REFERENCE_LIMITS.images)) {
         content.push({ type: "image_url", image_url: { url: await resolveSeedanceImageUrl(config, image) }, role: "reference_image" });
     }
-    for (const video of videoReferences.slice(0, 3)) {
+    for (const video of videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos)) {
         content.push({ type: "video_url", video_url: { url: await resolveSeedanceVideoUrl(video) }, role: "reference_video" });
+    }
+    for (const audio of audioReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.audios)) {
+        content.push({ type: "audio_url", audio_url: { url: await resolveSeedanceAudioUrl(audio) }, role: "reference_audio" });
     }
     return content;
 }
@@ -161,6 +191,16 @@ async function resolveSeedanceVideoUrl(video: ReferenceVideo) {
     return uploadReferenceMedia(file);
 }
 
+async function resolveSeedanceAudioUrl(audio: ReferenceAudio) {
+    if (isPublicMediaUrl(audio.url) || audio.url.startsWith("asset://")) return audio.url;
+    let blob: Blob | null = null;
+    if (audio.storageKey) blob = await getMediaBlob(audio.storageKey);
+    if (!blob && audio.url?.startsWith("blob:")) blob = await (await fetch(audio.url)).blob();
+    if (!blob) throw new Error("参考音频必须是公网 URL、素材 ID，或本地已保存的音频");
+    const file = new File([blob], audio.name || "reference-audio.mp3", { type: audio.type || blob.type || "audio/mpeg" });
+    return uploadReferenceMedia(file);
+}
+
 async function uploadReferenceMedia(file: File) {
     const token = useUserStore.getState().token;
     if (!token) throw new Error("使用本地参考素材需要先登录，并在服务端配置 PUBLIC_BASE_URL");
@@ -182,11 +222,6 @@ async function videoResultFromUrl(url: string): Promise<VideoGenerationResult> {
     }
 }
 
-function isSeedanceConfig(config: AiConfig, model: string) {
-    const value = `${model} ${config.baseUrl}`.toLowerCase();
-    return value.includes("seedance") || value.includes("doubao-seedance") || value.includes("ark.cn-beijing.volces.com/api/plan/v3");
-}
-
 function assertVideoConfig(config: AiConfig, model: string) {
     if (!model) throw new Error("请先配置视频模型");
     if (config.channelMode === "local" && !config.baseUrl.trim()) throw new Error("请先配置 Base URL");
@@ -198,36 +233,11 @@ function normalizeVideoSeconds(value: string) {
     return String(Math.max(1, Math.min(20, seconds)));
 }
 
-function normalizeSeedanceDuration(value: string) {
-    const seconds = Math.floor(Number(value) || 5);
-    return Math.max(4, Math.min(15, seconds));
-}
-
 function normalizeVideoSize(value: string) {
     if (value === "auto") return null;
     const size = value || "1280x720";
     if (/^\d+x\d+$/.test(size)) return size;
     return ["9:16", "2:3", "3:4"].includes(size) ? "720x1280" : "1280x720";
-}
-
-function normalizeSeedanceRatio(value: string) {
-    if (!value || value === "auto") return "adaptive";
-    if (["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"].includes(value)) return value;
-    const match = value.match(/^(\d+)x(\d+)$/);
-    if (!match) return "adaptive";
-    const width = Number(match[1]);
-    const height = Number(match[2]);
-    if (!width || !height) return "adaptive";
-    const ratio = width / height;
-    const options = [
-        ["16:9", 16 / 9],
-        ["4:3", 4 / 3],
-        ["1:1", 1],
-        ["3:4", 3 / 4],
-        ["9:16", 9 / 16],
-        ["21:9", 21 / 9],
-    ] as const;
-    return options.reduce((best, item) => (Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best), options[0])[0];
 }
 
 function normalizeVideoResolution(value: string) {

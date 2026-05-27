@@ -12,7 +12,16 @@ import (
 	"github.com/google/uuid"
 )
 
-const referenceMediaMaxBytes = 80 << 20
+const (
+	referenceMediaMaxBytes    = 80 << 20
+	referenceImageMaxBytes    = 30 << 20
+	referenceVideoMaxBytes    = 50 << 20
+	referenceAudioMaxBytes    = 15 << 20
+	referenceImageAllowedText = "jpeg/png/webp/bmp/gif/heic/heif 图片"
+	referenceVideoAllowedText = "mp4/mov 视频"
+	referenceAudioAllowedText = "mp3/wav 音频"
+	referenceMediaAllowedText = referenceImageAllowedText + "、" + referenceVideoAllowedText + "或" + referenceAudioAllowedText
+)
 
 type referenceMediaUploadResult struct {
 	ID       string `json:"id"`
@@ -24,7 +33,7 @@ type referenceMediaUploadResult struct {
 func UploadReferenceMedia(w http.ResponseWriter, r *http.Request) {
 	publicBaseURL := strings.TrimRight(strings.TrimSpace(config.Cfg.PublicBaseURL), "/")
 	if publicBaseURL == "" {
-		Fail(w, "未配置 PUBLIC_BASE_URL，无法把本地参考视频提供给火山方舟访问")
+		Fail(w, "未配置 PUBLIC_BASE_URL，无法把本地参考素材提供给火山方舟访问")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, referenceMediaMaxBytes+1)
@@ -44,7 +53,7 @@ func UploadReferenceMedia(w http.ResponseWriter, r *http.Request) {
 
 	mimeType, ext, ok := normalizeReferenceMediaType(header.Header.Get("Content-Type"), filepath.Ext(header.Filename))
 	if !ok {
-		Fail(w, "参考素材格式不支持，请使用 jpeg/png/webp/bmp/gif/heic/heif 图片或 mp4/mov 视频")
+		Fail(w, "参考素材格式不支持，请使用 "+referenceMediaAllowedText)
 		return
 	}
 	if err := os.MkdirAll(referenceMediaDir(), 0o755); err != nil {
@@ -65,9 +74,14 @@ func UploadReferenceMedia(w http.ResponseWriter, r *http.Request) {
 		Fail(w, "参考素材保存失败")
 		return
 	}
-	if bytes <= 0 || bytes > referenceMediaMaxBytes {
+	if bytes <= 0 {
 		_ = os.Remove(targetPath)
-		Fail(w, "参考素材为空或超过大小限制")
+		Fail(w, "参考素材为空")
+		return
+	}
+	if limit := referenceMediaTypeMaxBytes(mimeType); limit > 0 && bytes > limit {
+		_ = os.Remove(targetPath)
+		Fail(w, referenceMediaSizeMessage(mimeType))
 		return
 	}
 	OK(w, referenceMediaUploadResult{
@@ -141,6 +155,10 @@ func referenceMediaExtByMimeType(mimeType string) string {
 		return ".mp4"
 	case "video/quicktime", "video/mov":
 		return ".mov"
+	case "audio/mpeg", "audio/mp3":
+		return ".mp3"
+	case "audio/wav", "audio/x-wav", "audio/wave":
+		return ".wav"
 	default:
 		return ""
 	}
@@ -166,7 +184,37 @@ func mimeTypeByReferenceMediaExt(ext string) string {
 		return "video/mp4"
 	case ".mov":
 		return "video/quicktime"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".wav":
+		return "audio/wav"
 	default:
 		return ""
 	}
+}
+
+func referenceMediaTypeMaxBytes(mimeType string) int64 {
+	if strings.HasPrefix(mimeType, "image/") {
+		return referenceImageMaxBytes
+	}
+	if strings.HasPrefix(mimeType, "video/") {
+		return referenceVideoMaxBytes
+	}
+	if strings.HasPrefix(mimeType, "audio/") {
+		return referenceAudioMaxBytes
+	}
+	return referenceMediaMaxBytes
+}
+
+func referenceMediaSizeMessage(mimeType string) string {
+	if strings.HasPrefix(mimeType, "image/") {
+		return "参考图片超过大小限制，请使用 30MB 以内的图片"
+	}
+	if strings.HasPrefix(mimeType, "video/") {
+		return "参考视频超过大小限制，请使用 50MB 以内的 mp4/mov 视频"
+	}
+	if strings.HasPrefix(mimeType, "audio/") {
+		return "参考音频超过大小限制，请使用 15MB 以内的 mp3/wav 音频"
+	}
+	return "参考素材超过大小限制"
 }

@@ -17,6 +17,8 @@ export type AiConfig = {
     textModel: string;
     videoSeconds: string;
     vquality: string;
+    videoGenerateAudio: string;
+    videoWatermark: string;
     systemPrompt: string;
     models: string[];
     quality: string;
@@ -36,6 +38,8 @@ export const defaultConfig: AiConfig = {
     textModel: "gpt-5.5",
     videoSeconds: "6",
     vquality: "720",
+    videoGenerateAudio: "true",
+    videoWatermark: "false",
     systemPrompt: "",
     models: [],
     quality: "auto",
@@ -61,17 +65,42 @@ function resolveEffectiveConfig(config: AiConfig, modelChannel: AdminPublicSetti
     const channelMode = modelChannel?.allowCustomChannel ? config.channelMode : "remote";
     if (channelMode === "local" || !modelChannel) return { ...config, channelMode };
     const models = modelChannel.availableModels;
-    const fallbackModel = modelChannel.defaultModel || models[0] || "";
+    const fallbackTextModel = validDefault(modelChannel.defaultTextModel, models) || preferredModel(models, isTextModelName);
+    const fallbackModel = validDefault(modelChannel.defaultModel, models) || fallbackTextModel || models[0] || "";
+    const fallbackImageModel = validDefault(modelChannel.defaultImageModel, models) || preferredModel(models, isImageModelName) || fallbackModel;
+    const fallbackVideoModel = validDefault(modelChannel.defaultVideoModel, models) || preferredModel(models, isVideoModelName) || fallbackModel;
     return {
         ...config,
         channelMode,
         models,
         model: models.includes(config.model) ? config.model : fallbackModel,
-        imageModel: models.includes(config.imageModel) ? config.imageModel : modelChannel.defaultImageModel || fallbackModel,
-        videoModel: models.includes(config.videoModel) ? config.videoModel : modelChannel.defaultVideoModel || fallbackModel,
-        textModel: models.includes(config.textModel) ? config.textModel : modelChannel.defaultTextModel || fallbackModel,
+        imageModel: models.includes(config.imageModel) ? config.imageModel : fallbackImageModel,
+        videoModel: models.includes(config.videoModel) ? config.videoModel : fallbackVideoModel,
+        textModel: models.includes(config.textModel) ? config.textModel : fallbackTextModel || fallbackModel,
         systemPrompt: modelChannel.systemPrompt,
     };
+}
+
+function validDefault(model: string, models: string[]) {
+    return models.includes(model) ? model : "";
+}
+
+function preferredModel(models: string[], predicate: (model: string) => boolean) {
+    return models.find(predicate) || "";
+}
+
+function isVideoModelName(model: string) {
+    const value = model.toLowerCase();
+    return value.includes("seedance") || value.includes("video");
+}
+
+function isImageModelName(model: string) {
+    const value = model.toLowerCase();
+    return value.includes("seedream") || value.includes("gpt-image") || value.includes("image");
+}
+
+function isTextModelName(model: string) {
+    return !isImageModelName(model) && !isVideoModelName(model);
 }
 
 function isAiConfigReady(config: AiConfig, model: string) {
@@ -112,7 +141,7 @@ export const useConfigStore = create<ConfigStore>()(
             partialize: (state) => ({ config: state.config }),
             merge: (persisted, current) => {
                 const config = { ...defaultConfig, ...((persisted as Partial<ConfigStore>).config || {}) };
-                return { ...current, config: { ...config, channelMode: config.channelMode || "remote", imageModel: config.imageModel || config.model, videoModel: config.videoModel || "grok-imagine-video", textModel: config.textModel || config.model, videoSeconds: config.videoSeconds || "6", vquality: config.vquality || "720" } };
+                return { ...current, config: { ...config, channelMode: config.channelMode || "remote", imageModel: config.imageModel || config.model, videoModel: config.videoModel || "grok-imagine-video", textModel: config.textModel || config.model, videoSeconds: config.videoSeconds || "6", vquality: config.vquality || "720", videoGenerateAudio: config.videoGenerateAudio || "true", videoWatermark: config.videoWatermark || "false" } };
             },
         },
     ),
