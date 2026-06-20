@@ -393,10 +393,14 @@ function InfiniteCanvasPage() {
             router.replace("/canvas");
             return;
         }
+        let cancelled = false;
 
         const restore = async () => {
-            const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes));
-            const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
+            const [restoredNodes, restoredSessions] = await Promise.all([
+                hydrateCanvasImages(resetInterruptedGeneration(project.nodes)),
+                hydrateAssistantImages(project.chatSessions || []),
+            ]);
+            if (cancelled) return;
             setNodes(restoredNodes);
             setConnections(project.connections);
             setChatSessions(restoredSessions);
@@ -421,6 +425,9 @@ function InfiniteCanvasPage() {
             setProjectLoaded(true);
         };
         void restore();
+        return () => {
+            cancelled = true;
+        };
     }, [hydrated, openProject, projectId, router]);
 
     useEffect(() => {

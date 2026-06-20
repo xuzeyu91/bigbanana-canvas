@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button } from "antd";
 import { Download, FileUp, Plus } from "lucide-react";
@@ -25,6 +25,22 @@ export default function CanvasPage() {
     const importProject = useCanvasStore((state) => state.importProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
+    const firstProjectId = projects[0]?.id;
+
+    useEffect(() => {
+        if (!hydrated || !firstProjectId) return;
+        const targetPath = `/canvas/${firstProjectId}`;
+        const prefetch = () => {
+            void router.prefetch(targetPath);
+        };
+        if (typeof window === "undefined") return;
+        if ("requestIdleCallback" in window) {
+            const idleId = window.requestIdleCallback(prefetch, { timeout: 1200 });
+            return () => window.cancelIdleCallback(idleId);
+        }
+        const timer = window.setTimeout(prefetch, 180);
+        return () => window.clearTimeout(timer);
+    }, [firstProjectId, hydrated, router]);
 
     const enterProject = (id: string) => {
         router.push(`/canvas/${id}`);

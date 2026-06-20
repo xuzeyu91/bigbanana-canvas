@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useRef } from "react";
 import { Check, Download, Pencil, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Input } from "antd";
@@ -10,6 +11,7 @@ import { exportCanvasProjects } from "../utils/canvas-export";
 
 export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     const router = useRouter();
+    const prefetchedRef = useRef(false);
     const renameProject = useCanvasStore((state) => state.renameProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const editingId = useCanvasUiStore((state) => state.editingProjectId);
@@ -21,7 +23,16 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
     const editing = editingId === project.id;
     const selected = selectedIds.includes(project.id);
-    const open = () => router.push(`/canvas/${project.id}`);
+    const projectPath = `/canvas/${project.id}`;
+    const prefetchProject = useCallback(() => {
+        if (prefetchedRef.current) return;
+        prefetchedRef.current = true;
+        void router.prefetch(projectPath);
+    }, [projectPath, router]);
+    const open = () => {
+        prefetchProject();
+        router.push(projectPath);
+    };
     const saveTitle = () => {
         renameProject(project.id, editingTitle);
         stopEditing();
@@ -40,6 +51,9 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
                     justifyContent: "space-between",
                 },
             }}
+            onPointerEnter={prefetchProject}
+            onTouchStart={prefetchProject}
+            onFocus={prefetchProject}
             onClick={() => !editing && open()}
         >
             <div className="flex items-start gap-3">
