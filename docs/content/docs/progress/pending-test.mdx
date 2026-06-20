@@ -14,3 +14,4 @@ description: 当前版本已实现但仍需人工验证的变更项
 - Gemini 生图修复：`gemini-3-pro-image-preview` 按模型名自动走 Gemini 请求格式（避免误走 OpenAI images 接口）；请求体补齐 `generationConfig.imageConfig.aspectRatio`，与参考项目保持一致。
 - 画布 UI 优化：将节点配置/生成面板（Prompt Panel）的宽度从 `500px` 增加到 `580px`，并将模型选择器（ModelPicker）的默认高度统一为 `h-10`（40px），最大宽度限制为 `180px`，提示词库按钮也统一为 `h-10` 尺寸，彻底解决长模型名称（如 `gemini-2-pro-image-prev...`）导致右侧设置按钮与生成按钮重叠、挤压的问题。
 - 页面样式与配色优化（参考 BigBanana-AI-Director）：将画布的亮色与暗色主题配色进行调整。亮色主题采用 Claude 风格的暖色调（背景 `#F7F5F0`，主文字 `#1A1816`，辅文字 `#44413D`，暖棕色 `#B5936B` 强调色），暗色主题采用极简纯黑风格（背景 `#050505`，主文字 `#ffffff`，辅文字 `#d4d4d8`，靛蓝色 `#818cf8` 强调色）。同时将 Ant Design 全局组件的主题背景、边框 and 文字颜色与之对齐，使整体视觉风格更加和谐统一。
+- 画布库卡片样式优化（参考 BigBanana-AI-Director）：将画布列表中的卡片样式从原本硬编码的浅米色背景（`bg-[#f1eee8]`）调整为动态适配主题的卡片样式。亮色模式下卡片背景为纯白（`bg-card`），边框为温灰色（`border-border`），悬停时边框加深并带有轻微阴影（`hover:border-stone-400 hover:shadow-md`）；暗色模式下卡片背景为深灰（`bg-card`），悬停时边框变亮并带有轻微阴影（`hover:border-zinc-500 hover:shadow-md`），使卡片在亮暗色主题下均具有极佳的视觉质感和一致性。
