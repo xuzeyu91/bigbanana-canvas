@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { App } from "antd";
 
-import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
+import { ANTSK_BASE_URL, createModelChannel, useConfigStore } from "@/stores/use-config-store";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const { message } = App.useApp();
@@ -16,9 +16,9 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (handledConfigParams.current) return;
         const searchParams = new URLSearchParams(window.location.search);
-        const baseUrl = searchParams.get("baseUrl") || searchParams.get("baseurl");
+        const importedBaseUrl = (searchParams.get("baseUrl") || searchParams.get("baseurl") || "").trim();
         const apiKey = searchParams.get("apiKey") || searchParams.get("apikey");
-        if (!baseUrl && !apiKey) return;
+        if (!importedBaseUrl && !apiKey) return;
         handledConfigParams.current = true;
         searchParams.delete("baseUrl");
         searchParams.delete("baseurl");
@@ -33,16 +33,17 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
                       index === 0
                           ? {
                                 ...channel,
-                                ...(baseUrl ? { baseUrl } : {}),
+                                baseUrl: ANTSK_BASE_URL,
                                 ...(apiKey ? { apiKey } : {}),
                             }
                           : channel,
                   )
-                : [createModelChannel({ id: "default", name: "默认渠道", baseUrl: baseUrl || undefined, apiKey: apiKey || "" })],
+                : [createModelChannel({ id: "default", name: "默认渠道", baseUrl: ANTSK_BASE_URL, apiKey: apiKey || "" })],
         );
-        if (baseUrl) updateConfig("baseUrl", baseUrl);
+        updateConfig("baseUrl", ANTSK_BASE_URL);
         if (apiKey) updateConfig("apiKey", apiKey);
         openConfigDialog(false);
+        if (importedBaseUrl && importedBaseUrl !== ANTSK_BASE_URL) message.warning(`当前 Base URL 固定为 ${ANTSK_BASE_URL}，已忽略传入地址`);
         message.success("已导入本地直连配置");
     }, [config.channels, message, openConfigDialog, updateConfig]);
 
