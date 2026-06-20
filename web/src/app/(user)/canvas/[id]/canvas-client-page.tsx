@@ -1169,12 +1169,7 @@ function InfiniteCanvasPage() {
         dragRef.current.hasMoved = false;
         dragRef.current.initialSelectedNodes = [];
         if (wasClick && clickedNodeId) {
-            const clickedNode = nodesRef.current.find((node) => node.id === clickedNodeId);
-            if (clickedNode?.type === CanvasNodeType.Text) {
-                setDialogNodeId((current) => (current === clickedNodeId ? current : null));
-            } else {
-                setDialogNodeId(clickedNodeId);
-            }
+            setDialogNodeId(clickedNodeId);
         }
     }, []);
 
