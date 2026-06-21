@@ -118,7 +118,7 @@ export const defaultWebdavSyncConfig: WebdavSyncConfig = {
     url: "",
     username: "",
     password: "",
-    directory: "infinite-canvas",
+    directory: "bigbanana-canvas",
     lastSyncedAt: "",
 };
 
@@ -242,9 +242,10 @@ export const useConfigStore = create<ConfigStore>()(
                 const textModel = normalizeDefaultModelSelection(config.textModel || config.model, channels, DEFAULT_TEXT_MODEL_NAME, LEGACY_TEXT_DEFAULT_MODEL_NAMES, "text");
                 const audioModel = normalizeDefaultModelSelection(config.audioModel, channels, DEFAULT_AUDIO_MODEL_NAME, LEGACY_AUDIO_DEFAULT_MODEL_NAMES, "audio");
                 const model = imageModel || normalizeDefaultModelSelection(config.model || config.imageModel, channels, DEFAULT_IMAGE_MODEL_NAME);
+                const mergedWebdav = normalizeWebdavSyncConfig({ ...defaultWebdavSyncConfig, ...persistedWebdav });
                 return {
                     ...current,
-                    webdav: { ...defaultWebdavSyncConfig, ...persistedWebdav },
+                    webdav: mergedWebdav,
                     config: {
                         ...config,
                         channelMode: "local",
@@ -283,6 +284,14 @@ function normalizeModelList(models: string[], channels: ModelChannel[]) {
     return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)))
         .map((model) => normalizeModelOptionValue(model, channels))
         .filter((model) => !allModelOptions.length || allModelOptions.includes(model) || !isChannelModelValue(model));
+}
+
+function normalizeWebdavSyncConfig(config: WebdavSyncConfig): WebdavSyncConfig {
+    const directory = config.directory.trim();
+    if (!directory || directory === "infinite-canvas") {
+        return { ...config, directory: "bigbanana-canvas" };
+    }
+    return config;
 }
 
 export function useEffectiveConfig() {
