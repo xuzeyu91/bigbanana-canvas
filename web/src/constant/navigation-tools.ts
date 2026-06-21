@@ -1,7 +1,8 @@
-import { FileText, ImagePlus, Images, Maximize2, Video } from "lucide-react";
+import { Clapperboard, FileText, ImagePlus, Images, Maximize2, Video } from "lucide-react";
 
 const IMAGE_WORKBENCH_URL = "https://bigbanana.tree456.com/gemini-image.html";
 const VIDEO_WORKBENCH_URL = "https://bigbanana.tree456.com/ai-video-content.html";
+const COMIC_WORKFLOW_URL = "https://director.tree456.com/";
 
 export const navigationTools = [
     {
@@ -23,6 +24,13 @@ export const navigationTools = [
         label: "视频创作台",
         icon: Video,
         href: VIDEO_WORKBENCH_URL,
+        external: true,
+    },
+    {
+        slug: "comic-workflow",
+        label: "漫剧工作流平台",
+        icon: Clapperboard,
+        href: COMIC_WORKFLOW_URL,
         external: true,
     },
     {
