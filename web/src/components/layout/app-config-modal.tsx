@@ -5,6 +5,7 @@ import { Cloud, RefreshCw, Wifi } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ModelPicker } from "@/components/model-picker";
+import { AccountCenterPanel } from "@/components/layout/account-center-panel";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
@@ -43,7 +44,7 @@ const webdavDomainLabels: Record<AppSyncDomainKey, string> = {
     canvas: "画布",
     assets: "我的素材",
 };
-const missingApiKeyHint = "请先在“渠道”里填写 API Key，保存后即可使用生成功能。";
+const missingApiKeyHint = "请先在“账号中心”登录并同步 Key，或在“渠道”里手动填写 API Key。";
 
 function createWebdavDomainProgress(): Record<AppSyncDomainKey, WebdavDomainProgress> {
     return webdavDomainKeys.reduce(
@@ -95,7 +96,7 @@ export function AppConfigModal() {
             missingApiKeyNoticeShownRef.current = false;
             return;
         }
-        setActiveTab("channels");
+        setActiveTab("account");
         if (!missingApiKeyNoticeShownRef.current) {
             message.warning(missingApiKeyHint);
             missingApiKeyNoticeShownRef.current = true;
@@ -220,13 +221,18 @@ export function AppConfigModal() {
         >
             {shouldPromptContinue ? (
                 <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
-                    当前功能需要可用的 API Key。请先在“渠道”页填写 API Key，保存后再继续生成。
+                    当前功能需要可用的 API Key。请先在“账号中心”登录并同步 Key，或在“渠道”页手动填写 API Key，保存后再继续生成。
                 </div>
             ) : null}
             <Tabs
                 activeKey={activeTab}
                 onChange={setActiveTab}
                 items={[
+                    {
+                        key: "account",
+                        label: "账号中心",
+                        children: <AccountCenterPanel />,
+                    },
                     {
                         key: "channels",
                         label: "渠道",
