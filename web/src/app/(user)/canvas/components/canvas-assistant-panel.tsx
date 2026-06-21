@@ -866,7 +866,7 @@ function OnlineAgentLogView({ logs, theme, context, onClear }: { logs: OnlineAge
     const content = mode === "text" ? formatOnlineLogText(logs, context) : formatOnlineLogJson(logs, context);
     const lastError = context.lastError || [...logs].reverse().find((item) => /错误|失败|error/i.test(`${item.title}\n${stringifyLog(item.data)}`))?.title || "";
     const copy = async (value = content) => {
-        if (copyToClipboard(value)) return;
+        if (await copyToClipboard(value)) return;
         textareaRef.current?.focus();
         textareaRef.current?.select();
     };
@@ -1230,6 +1230,7 @@ function stableSerialize(value: unknown): string {
 }
 
 function classifyToolRisk(name: string, args: Record<string, unknown>): OnlineToolRisk {
+    if (ONLINE_READ_TOOLS.has(name)) return "low";
     if (name === "canvas_apply_ops") return classifyApplyOpsRisk(args.ops);
     if (name === "canvas_delete_nodes" || name === "canvas_run_generation") return "high";
     if (name === "canvas_generate_text" || name === "canvas_generate_image" || name === "canvas_generate_video" || name === "canvas_generate_audio") return "high";
@@ -1547,7 +1548,10 @@ async function buildToolAgentMessages(snapshot: CanvasAgentSnapshot, history: Ca
         ...history
             .filter((message) => message.role === "user" || message.role === "assistant" || message.role === "system")
             .slice(-8)
-            .map((message): ResponseInputMessage => ({ role: message.role, content: message.text })),
+            .map((message): ResponseInputMessage => ({
+                role: message.role === "assistant" ? "assistant" : message.role === "system" ? "system" : "user",
+                content: message.text,
+            })),
         {
             role: "user",
             content: [
