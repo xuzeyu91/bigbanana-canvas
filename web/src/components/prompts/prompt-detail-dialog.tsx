@@ -10,16 +10,16 @@ type PreviewBlock =
     | { type: "link"; content: string; href: string }
     | { type: "image"; src: string; alt: string; href?: string };
 
-function PromptPreviewMarkdown({ value }: { value: string }) {
-    const blocks = parsePreviewMarkdown(value);
+function PromptPreviewMarkdown({ value, coverUrl }: { value: string; coverUrl: string }) {
+    const blocks = normalizePreviewBlocks(parsePreviewMarkdown(value), coverUrl);
     if (!blocks.length) return null;
 
     return (
-        <div className="max-h-60 overflow-auto rounded-lg bg-stone-100 p-3 text-xs leading-5 text-stone-600 dark:bg-stone-900 dark:text-stone-300">
+        <div className="max-h-80 overflow-auto rounded-lg bg-stone-100 p-3 text-xs leading-5 text-stone-600 dark:bg-stone-900 dark:text-stone-300">
             <div className="space-y-3">
                 {blocks.map((block, index) => {
                     if (block.type === "image") {
-                        const image = <img src={block.src} alt={block.alt || `preview-${index + 1}`} loading="lazy" className="w-full rounded-md object-cover" />;
+                        const image = <img src={block.src} alt={block.alt || `preview-${index + 1}`} loading="lazy" className="max-h-80 w-full rounded-md object-cover" />;
                         return (
                             <div key={`${block.src}-${index}`}>
                                 {block.href ? (
@@ -90,6 +90,23 @@ function parsePreviewMarkdown(value: string) {
     return blocks;
 }
 
+function normalizePreviewBlocks(blocks: PreviewBlock[], coverUrl: string) {
+    const normalizedCoverUrl = normalizeUrl(coverUrl);
+    let hasPreviewImage = false;
+    return blocks.filter((block) => {
+        if (block.type !== "image") return true;
+        const isDuplicateCover = normalizedCoverUrl && normalizeUrl(block.src) === normalizedCoverUrl;
+        if (isDuplicateCover) return false;
+        if (hasPreviewImage) return false;
+        hasPreviewImage = true;
+        return true;
+    });
+}
+
+function normalizeUrl(value: string) {
+    return value.trim().replace(/\/+$/, "");
+}
+
 export function PromptDetailDialog({ prompt, onClose, onCopy, onSaveAsset }: { prompt: Prompt | null; onClose: () => void; onCopy: (prompt: string) => void; onSaveAsset?: (prompt: Prompt) => void }) {
     return (
         <>
@@ -98,8 +115,8 @@ export function PromptDetailDialog({ prompt, onClose, onCopy, onSaveAsset }: { p
                     <>
                         <div className="grid gap-5 md:grid-cols-[300px_minmax(0,1fr)]">
                             <div className="space-y-3">
-                                <img src={prompt.coverUrl} alt={prompt.title} className="aspect-[4/3] w-full rounded-lg object-cover" />
-                                {prompt.preview ? <PromptPreviewMarkdown value={prompt.preview} /> : null}
+                                <img src={prompt.coverUrl} alt={prompt.title} className="h-80 w-full rounded-lg object-cover" />
+                                {prompt.preview ? <PromptPreviewMarkdown value={prompt.preview} coverUrl={prompt.coverUrl} /> : null}
                             </div>
                             <div className="min-w-0">
                                 <div className="flex flex-wrap gap-1.5">
