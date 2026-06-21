@@ -89,20 +89,81 @@ bun run dev
 http://localhost:3000
 ```
 
-### 2. Docker 启动
+### 2. Docker 部署
 
-如果你希望基于当前源码构建并运行 Docker 镜像：
+如果你的 Docker 版本只支持 `docker-compose`，把下面命令里的 `docker compose` 替换成 `docker-compose` 即可。
+
+#### 方式一：Docker Compose（推荐）
+
+首次部署（克隆 + 构建 + 启动）：
 
 ```bash
+git clone https://github.com/shuyu-labs/BigBanana-Canvas.git
+cd BigBanana-Canvas
+
+# 构建并启动（会重新构建镜像）
+docker compose up -d --build
+```
+
+更新到最新代码：
+
+```bash
+git pull
+
+# 常规更新：重新构建并启动
+docker compose up -d --build
+
+# 如果怀疑构建缓存导致未更新：无缓存构建 + 强制重建容器
+docker compose build --no-cache
+docker compose up -d --force-recreate
+```
+
+常用命令：
+
+```bash
+# 查看日志
+docker compose logs -f app
+
+# 停止并删除容器（不删除镜像）
+docker compose down
+```
+
+启动后访问 `http://localhost:3006`。
+
+#### 方式二：Docker 命令
+
+```bash
+# 构建镜像
 docker build -t bigbanana-canvas .
-docker run --rm -p 3000:3000 bigbanana-canvas
+
+# 无缓存构建（强制重新执行每一层）
+docker build --no-cache -t bigbanana-canvas .
+
+# 运行容器（宿主机 3006 -> 容器 3000）
+docker run -d -p 3006:3000 --name bigbanana-canvas-app bigbanana-canvas
 ```
 
-运行后在浏览器中打开：
+更新到最新代码（Docker 命令方式）：
 
-```text
-http://localhost:3000
+```bash
+git pull
+docker stop bigbanana-canvas-app
+docker rm bigbanana-canvas-app
+docker build -t bigbanana-canvas .
+docker run -d -p 3006:3000 --name bigbanana-canvas-app bigbanana-canvas
 ```
+
+常用命令：
+
+```bash
+docker logs -f bigbanana-canvas-app
+docker stop bigbanana-canvas-app
+```
+
+如果你确认容器已更新但页面仍是旧的：
+
+- 浏览器可能缓存了静态资源：先尝试强制刷新（`Ctrl+F5`）或清理站点缓存。
+- 如果前面有 CDN / 反向代理，也可能缓存了 `index.html`，需要在上游刷新缓存。
 
 ### 3. 首次配置指引
 

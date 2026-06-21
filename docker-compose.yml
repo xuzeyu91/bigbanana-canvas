@@ -1,7 +1,10 @@
 services:
   app:
-    image: ghcr.io/xuzeyu91/infinite-canvas:latest
-    container_name: infinite-canvas
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bigbanana-canvas:local
+    container_name: bigbanana-canvas
     ports:
       - "3006:3000"
     restart: unless-stopped
