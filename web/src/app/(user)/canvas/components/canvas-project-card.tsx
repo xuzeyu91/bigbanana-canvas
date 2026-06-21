@@ -9,7 +9,12 @@ import { useCanvasStore, type CanvasProject } from "../stores/use-canvas-store";
 import { useCanvasUiStore } from "../stores/use-canvas-ui-store";
 import { exportCanvasProjects } from "../utils/canvas-export";
 
-export function CanvasProjectCard({ project }: { project: CanvasProject }) {
+type CanvasProjectCardProps = {
+    project: CanvasProject;
+    onOpen?: (projectId: string) => void | Promise<void>;
+};
+
+export function CanvasProjectCard({ project, onOpen }: CanvasProjectCardProps) {
     const router = useRouter();
     const prefetchedRef = useRef(false);
     const renameProject = useCanvasStore((state) => state.renameProject);
@@ -31,6 +36,10 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     }, [projectPath, router]);
     const open = () => {
         prefetchProject();
+        if (onOpen) {
+            void onOpen(project.id);
+            return;
+        }
         router.push(projectPath);
     };
     const saveTitle = () => {

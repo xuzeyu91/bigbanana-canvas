@@ -629,7 +629,8 @@ export function AccountCenterPanel() {
             <Alert
                 type="info"
                 showIcon
-                message="账号中心（api.antsk.cn）"
+                className="rounded-lg !border-stone-200 !bg-stone-50/70 text-stone-700 dark:!border-stone-700 dark:!bg-stone-900/40 dark:text-stone-200"
+                title="账号中心（api.antsk.cn）"
                 description="支持注册、登录、自动同步 Key、查看日志与充值。登录后会自动拉取 Key；若无 Key 会自动创建默认 Key。"
             />
 

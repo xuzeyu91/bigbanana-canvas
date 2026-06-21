@@ -9,6 +9,7 @@ import { saveAs } from "file-saver";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
+import { bootstrapNewApiSession } from "@/services/new-api-service";
 import { defaultConfig, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
@@ -131,13 +132,50 @@ function createCanvasNode(type: CanvasNodeType, position: Position, metadata?: C
 }
 
 export default function CanvasPage() {
+    const { message } = App.useApp();
+    const router = useRouter();
+    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const [mounted, setMounted] = useState(false);
+    const [accountReady, setAccountReady] = useState(false);
+    const [accountChecked, setAccountChecked] = useState(false);
+    const accountCheckedRef = useRef(false);
 
     useEffect(() => {
         setMounted(true);
     }, []);
 
-    if (!mounted) return <CanvasRefreshShell />;
+    useEffect(() => {
+        if (!mounted || accountCheckedRef.current) return;
+        accountCheckedRef.current = true;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const session = await bootstrapNewApiSession();
+                if (cancelled) return;
+                if (session?.userId) {
+                    setAccountReady(true);
+                    return;
+                }
+                setAccountReady(false);
+                message.warning("请先登录账号中心后再进入画布");
+                openConfigDialog(true);
+                router.replace("/canvas");
+            } catch {
+                if (cancelled) return;
+                setAccountReady(false);
+                message.warning("请先登录账号中心后再进入画布");
+                openConfigDialog(true);
+                router.replace("/canvas");
+            } finally {
+                if (!cancelled) setAccountChecked(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [message, mounted, openConfigDialog, router]);
+
+    if (!mounted || !accountChecked || !accountReady) return <CanvasRefreshShell />;
 
     return <InfiniteCanvasPage />;
 }

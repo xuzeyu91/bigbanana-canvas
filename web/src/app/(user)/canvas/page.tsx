@@ -8,6 +8,8 @@ import { Download, FileUp, Plus } from "lucide-react";
 import { readZip } from "@/lib/zip";
 import { setMediaBlob } from "@/services/file-storage";
 import { setImageBlob } from "@/services/image-storage";
+import { bootstrapNewApiSession } from "@/services/new-api-service";
+import { useConfigStore } from "@/stores/use-config-store";
 import { CanvasDeleteProjectsDialog } from "./components/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "./components/canvas-project-card";
 import type { CanvasExportFile } from "./export-types";
@@ -23,9 +25,11 @@ export default function CanvasPage() {
     const projects = useCanvasStore((state) => state.projects);
     const createProject = useCanvasStore((state) => state.createProject);
     const importProject = useCanvasStore((state) => state.importProject);
+    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
     const firstProjectId = projects[0]?.id;
+    const checkingSessionRef = useRef(false);
 
     useEffect(() => {
         if (!hydrated || !firstProjectId) return;
@@ -42,10 +46,33 @@ export default function CanvasPage() {
         return () => window.clearTimeout(timer);
     }, [firstProjectId, hydrated, router]);
 
-    const enterProject = (id: string) => {
+    const ensureAccountReady = async () => {
+        if (checkingSessionRef.current) return false;
+        checkingSessionRef.current = true;
+        try {
+            const session = await bootstrapNewApiSession();
+            if (session?.userId) return true;
+            message.warning("请先登录账号中心后再进入画布");
+            openConfigDialog(true);
+            return false;
+        } catch {
+            message.warning("请先登录账号中心后再进入画布");
+            openConfigDialog(true);
+            return false;
+        } finally {
+            checkingSessionRef.current = false;
+        }
+    };
+
+    const enterProject = async (id: string) => {
+        if (!(await ensureAccountReady())) return;
         router.push(`/canvas/${id}`);
     };
-    const createAndEnter = () => enterProject(createProject(`BigBanana Canvas ${projects.length + 1}`));
+    const createAndEnter = async () => {
+        if (!(await ensureAccountReady())) return;
+        const id = createProject(`BigBanana Canvas ${projects.length + 1}`);
+        router.push(`/canvas/${id}`);
+    };
     const importCanvas = async (file?: File) => {
         if (!file) return;
         try {
@@ -99,7 +126,7 @@ export default function CanvasPage() {
                         <Button disabled={!hydrated} icon={<FileUp className="size-4" />} onClick={() => inputRef.current?.click()}>
                             导入画布
                         </Button>
-                        <Button disabled={!hydrated} type="primary" icon={<Plus className="size-4" />} onClick={createAndEnter}>
+                        <Button disabled={!hydrated} type="primary" icon={<Plus className="size-4" />} onClick={() => void createAndEnter()}>
                             新建画布
                         </Button>
                     </div>
@@ -110,14 +137,14 @@ export default function CanvasPage() {
                 ) : projects.length ? (
                     <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                         {projects.map((project) => (
-                            <CanvasProjectCard key={project.id} project={project} />
+                            <CanvasProjectCard key={project.id} project={project} onOpen={enterProject} />
                         ))}
                     </div>
                 ) : (
                     <section className="flex min-h-[360px] flex-col items-center justify-center border-y border-border text-center">
                         <h2 className="text-xl font-medium">还没有画布</h2>
                         <p className="mt-3 text-sm text-muted-foreground">新建一个画布后，就可以独立保存节点、连线和画布外观。</p>
-                        <Button type="primary" className="mt-6" icon={<Plus className="size-4" />} onClick={createAndEnter}>
+                        <Button type="primary" className="mt-6" icon={<Plus className="size-4" />} onClick={() => void createAndEnter()}>
                             新建画布
                         </Button>
                     </section>
