@@ -58,6 +58,8 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
 }
 
 export function AgentPendingToolCard({ summary, detail, theme, onReject, onApprove }: { summary: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onReject?: () => void; onApprove?: () => void }) {
+    const pending = parsePendingToolDetail(detail);
+    const levelStyle = pendingRiskStyle(pending.risk);
     return (
         <div className="flex items-start gap-3">
             <AgentAvatar theme={theme} />
@@ -65,7 +67,7 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
                 <details>
                     <summary className="cursor-pointer list-none">
                         <div className="flex items-start gap-3">
-                            <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border" style={{ borderColor: "rgba(217,119,6,.24)", color: "#d97706", background: "rgba(217,119,6,.04)" }}>
+                            <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border" style={{ borderColor: levelStyle.borderColor, color: levelStyle.color, background: levelStyle.background }}>
                                 <CircleAlert className="size-4" />
                             </span>
                             <div className="min-w-0 flex-1">
@@ -74,11 +76,44 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
                                     <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium" style={{ borderColor: "rgba(217,119,6,.22)", color: "#d97706", background: "rgba(217,119,6,.04)" }}>
                                         等待确认
                                     </span>
+                                    {pending.showRisk ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium" style={{ borderColor: levelStyle.borderColor, color: levelStyle.color, background: levelStyle.background }}>
+                                            {pendingRiskLabel(pending.risk)}
+                                        </span>
+                                    ) : null}
                                     {detail ? <span className="ml-auto text-xs font-normal" style={{ color: theme.node.muted }}>详情</span> : null}
                                 </div>
                                 <div className="mt-2 text-sm leading-6" style={{ color: theme.node.text }}>
                                     {summary}
                                 </div>
+                                {pending.duplicate > 0 ? (
+                                    <div className="mt-2 text-xs leading-5" style={{ color: theme.node.muted }}>
+                                        检测到重复动作 {pending.duplicate} 个，批准后会自动跳过。
+                                    </div>
+                                ) : null}
+                                {pending.previews.length ? (
+                                    <div className="mt-3 space-y-2">
+                                        {pending.previews.map((preview, index) => {
+                                            const previewStyle = pendingRiskStyle(preview.risk);
+                                            return (
+                                                <div key={`${preview.label}-${index}`} className="rounded-lg border px-3 py-2" style={{ borderColor: previewStyle.borderColor, background: previewStyle.background }}>
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="text-xs font-semibold">{index + 1}. {preview.label}</span>
+                                                        <span className="rounded-full border px-1.5 py-0.5 text-[10px] font-medium" style={{ borderColor: previewStyle.borderColor, color: previewStyle.color }}>
+                                                            {pendingRiskLabel(preview.risk)}
+                                                        </span>
+                                                    </div>
+                                                    {preview.summary ? <div className="mt-1 text-xs leading-5">{preview.summary}</div> : null}
+                                                    {preview.details.slice(0, 3).map((line, lineIndex) => (
+                                                        <div key={`${preview.label}-detail-${lineIndex}`} className="text-[11px] leading-5 opacity-80">
+                                                            {line}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                     </summary>
@@ -300,6 +335,7 @@ function toolCardState(title: string, text: string, detail?: unknown) {
     const lower = raw.toLowerCase();
     const tool = String(objectField(detail, "name") || objectField(detail, "tool") || "");
     if (objectField(detail, "status") === "noop" || /未生效|无需|没有找到|没有.*可|已存在/.test(raw)) return { label: "未生效", color: "#d97706", softBorder: "rgba(217,119,6,.22)", softBg: "rgba(217,119,6,.04)", icon: <CircleAlert className="size-4" />, isError: false };
+    if (/跳过|重复/.test(raw) || lower.includes("skipped") || lower.includes("duplicate")) return { label: "已跳过", color: "#d97706", softBorder: "rgba(217,119,6,.22)", softBg: "rgba(217,119,6,.04)", icon: <CircleAlert className="size-4" />, isError: false };
     if (/拒绝|取消/.test(raw) || lower.includes("rejected")) return { label: "拒绝执行", color: "#dc2626", softBorder: "rgba(220,38,38,.20)", softBg: "rgba(220,38,38,.04)", icon: <XCircle className="size-4" />, isError: true };
     if (/失败|错误/.test(raw) || lower.includes("failed") || lower.includes("error")) return { label: "执行失败", color: "#dc2626", softBorder: "rgba(220,38,38,.20)", softBg: "rgba(220,38,38,.04)", icon: <XCircle className="size-4" />, isError: true };
     if (/完成|成功/.test(raw) || lower.includes("completed") || lower.includes("succeeded")) return { label: tool === "canvas_apply_ops" || /画布操作/.test(title) ? "已批准执行" : "执行完成", color: "#16a34a", softBorder: "rgba(22,163,74,.20)", softBg: "rgba(22,163,74,.04)", icon: <CheckCircle2 className="size-4" />, isError: false };
@@ -311,6 +347,58 @@ function normalizeText(value: unknown) {
     if (value instanceof Error) return value.message;
     if (value == null) return "";
     return JSON.stringify(value, null, 2);
+}
+
+function parsePendingToolDetail(value: unknown) {
+    const detail = recordValue(value);
+    const rawRisk = pendingRiskValue(detail.risk);
+    const previews = Array.isArray(detail.previews)
+        ? detail.previews
+              .map((item) => {
+                  const data = recordValue(item);
+                  const label = String(data.label || "工具动作");
+                  const summary = typeof data.summary === "string" ? data.summary : "";
+                  const risk = pendingRiskValue(data.risk) || rawRisk || "medium";
+                  const details = Array.isArray(data.details) ? data.details.filter((line): line is string => typeof line === "string" && Boolean(line.trim())) : [];
+                  return { label, summary, risk, details };
+              })
+              .filter((item) => item.label)
+        : [];
+    const dedupe = recordValue(detail.dedupe);
+    const duplicate = typeof dedupe.duplicate === "number" ? dedupe.duplicate : 0;
+    return {
+        risk: rawRisk || previews.reduce<"low" | "medium" | "high">((current, item) => (pendingRiskRank(item.risk) > pendingRiskRank(current) ? item.risk : current), "low"),
+        previews,
+        duplicate,
+        showRisk: Boolean(rawRisk || previews.length),
+    };
+}
+
+function pendingRiskValue(value: unknown): "low" | "medium" | "high" | null {
+    if (value === "low" || value === "medium" || value === "high") return value;
+    return null;
+}
+
+function pendingRiskRank(value: "low" | "medium" | "high") {
+    if (value === "high") return 3;
+    if (value === "medium") return 2;
+    return 1;
+}
+
+function pendingRiskLabel(value: "low" | "medium" | "high") {
+    if (value === "high") return "高风险";
+    if (value === "medium") return "中风险";
+    return "低风险";
+}
+
+function pendingRiskStyle(value: "low" | "medium" | "high") {
+    if (value === "high") return { color: "#dc2626", borderColor: "rgba(220,38,38,.24)", background: "rgba(220,38,38,.04)" };
+    if (value === "medium") return { color: "#d97706", borderColor: "rgba(217,119,6,.24)", background: "rgba(217,119,6,.04)" };
+    return { color: "#2563eb", borderColor: "rgba(37,99,235,.22)", background: "rgba(37,99,235,.04)" };
+}
+
+function recordValue(value: unknown) {
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
 function objectField(value: unknown, key: string) {

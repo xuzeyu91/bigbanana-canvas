@@ -117,11 +117,31 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
 ];
 type OnlineAgentTab = "setup" | "chat" | "history" | "log";
 type OnlineAgentLog = { id: string; time: string; title: string; data?: unknown };
-type OnlineAgentLogContext = { model: string; running: boolean; confirmTools: boolean; messages: number; nodes: number; connections: number };
+type OnlineToolRisk = "low" | "medium" | "high";
+type OnlineToolPreview = { id: string; name: string; label: string; summary: string; details: string[]; risk: OnlineToolRisk; signature: string; duplicate?: boolean };
+type OnlineToolStats = { pendingApprovals: number; executedTools: number; skippedTools: number; failedTools: number; duplicatedTools: number; lastError: string };
+type OnlineAgentLogContext = {
+    model: string;
+    running: boolean;
+    confirmTools: boolean;
+    messages: number;
+    nodes: number;
+    connections: number;
+    sessionId: string;
+    sessionTitle: string;
+    sessionCount: number;
+    historyCount: number;
+    pendingApprovals: number;
+    executedTools: number;
+    skippedTools: number;
+    failedTools: number;
+    duplicatedTools: number;
+    lastError: string;
+};
 type OnlineLoopContext = { step: number };
-type OnlineToolResult = { ok: true; message: string; data?: unknown } | { ok: false; message: string };
-type OnlineExecutedToolCall = { toolCallId: string; name: string; result: OnlineToolResult };
-type PendingOnlineToolContext = { messages: ResponseInputMessage[]; toolCalls: ResponseToolCall[]; assistantId: string; step: number };
+type OnlineToolResult = { ok: boolean; message: string; data?: unknown; skipped?: boolean; duplicate?: boolean };
+type OnlineExecutedToolCall = { toolCallId: string; name: string; signature: string; result: OnlineToolResult };
+type PendingOnlineToolContext = { messages: ResponseInputMessage[]; toolCalls: ResponseToolCall[]; assistantId: string; step: number; executedSignatures: string[] };
 
 type CanvasAssistantPanelProps = {
     nodes: CanvasNodeData[];
@@ -187,6 +207,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
     const selectedNodeKey = useMemo(() => Array.from(selectedNodeIds).sort().join(","), [selectedNodeIds]);
     const allSelectedReferences = useMemo(() => buildAssistantReferences(nodes, selectedNodeIds), [nodes, selectedNodeIds]);
     const selectedReferences = useMemo(() => allSelectedReferences.filter((item) => !removedReferenceIds.has(item.id)), [allSelectedReferences, removedReferenceIds]);
+    const onlineToolStats = useMemo(() => summarizeOnlineToolStats(messages), [messages]);
     const iconButtonStyle = { color: theme.node.muted };
 
     useEffect(() => {
@@ -269,10 +290,10 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         addOnlineLog("发送请求", { text, selectedNodeIds: snapshotRef.current.selectedNodeIds, nodeCount: snapshotRef.current.nodes.length, connectionCount: snapshotRef.current.connections.length });
         setPrompt("");
         setIsRunning(true);
-        void runOnlineAgentStep(session.id, assistantId, history, userMessage, { step: 1 });
+        void runOnlineAgentStep(session.id, assistantId, history, userMessage, { step: 1 }, new Set<string>());
     };
 
-    const runOnlineAgentStep = async (sessionId: string, assistantId: string, history: CanvasAssistantMessage[], userMessage: CanvasAssistantMessage, loop: OnlineLoopContext) => {
+    const runOnlineAgentStep = async (sessionId: string, assistantId: string, history: CanvasAssistantMessage[], userMessage: CanvasAssistantMessage, loop: OnlineLoopContext, executedSignatures: Set<string>) => {
         const requestConfig = { ...effectiveConfig, model: effectiveConfig.textModel || effectiveConfig.model };
         try {
             setIsRunning(true);
@@ -287,15 +308,22 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
             if (result.toolCalls.length) {
                 const writableCalls = result.toolCalls.filter(isWritableToolCall);
                 if (confirmTools && writableCalls.length) {
+                    const approval = buildOnlineApprovalPreview(result.toolCalls, snapshotRef.current, executedSignatures);
                     upsertMessage(sessionId, { id: assistantId, role: "assistant", text: result.content || streamed || "准备执行工具，等待确认。" });
                     const toolMessageId = nanoid();
-                    pendingToolContextRef.current.set(toolMessageId, { messages, toolCalls: result.toolCalls, assistantId, step: loop.step });
-                    const toolMessage: CanvasAssistantMessage = { id: toolMessageId, role: "tool", title: "确认工具调用", text: summarizeToolCalls(result.toolCalls), detail: { status: "pending", step: loop.step, toolCalls: result.toolCalls } };
+                    pendingToolContextRef.current.set(toolMessageId, { messages, toolCalls: result.toolCalls, assistantId, step: loop.step, executedSignatures: Array.from(executedSignatures) });
+                    const toolMessage: CanvasAssistantMessage = {
+                        id: toolMessageId,
+                        role: "tool",
+                        title: "确认工具调用",
+                        text: approval.summary,
+                        detail: { status: "pending", step: loop.step, toolCalls: result.toolCalls, previews: approval.items, risk: approval.risk, dedupe: approval.dedupe },
+                    };
                     appendMessage(sessionId, toolMessage);
-                    addOnlineLog("等待用户确认", result.toolCalls);
+                    addOnlineLog("等待用户确认", { ...approval, toolCalls: result.toolCalls });
                     return;
                 }
-                await continueOnlineToolLoop(sessionId, assistantId, messages, result, loop.step);
+                await continueOnlineToolLoop(sessionId, assistantId, messages, result, loop.step, executedSignatures);
             } else {
                 if (!result.content.trim()) throw new Error("模型没有返回工具调用，画布操作未执行。");
                 upsertMessage(sessionId, { id: assistantId, role: "assistant", text: result.content || streamed || "没有返回内容。" });
@@ -309,20 +337,20 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         }
     };
 
-    const continueOnlineToolLoop = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], result: { content: string; toolCalls: ResponseToolCall[] }, step: number) => {
-        const toolResults = executeOnlineToolCalls(result.toolCalls);
+    const continueOnlineToolLoop = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], result: { content: string; toolCalls: ResponseToolCall[] }, step: number, executedSignatures: Set<string>) => {
+        const toolResults = executeOnlineToolCalls(result.toolCalls, executedSignatures);
         addOnlineLog("工具执行结果", toolResults);
         appendMessage(sessionId, {
             id: nanoid(),
             role: "tool",
             title: "工具自动执行完成",
-            text: toolResults.map((item) => toolResultText(item.result)).join("\n"),
-            detail: { status: "completed", step, toolCalls: result.toolCalls, results: toolResults },
+            text: summarizeToolResults(toolResults),
+            detail: { status: "completed", step, toolCalls: result.toolCalls, results: toolResults, dedupe: summarizeResultDedupe(toolResults) },
         });
-        await continueOnlineToolLoopAfterResults(sessionId, assistantId, messages, result.toolCalls, toolResults, step);
+        await continueOnlineToolLoopAfterResults(sessionId, assistantId, messages, result.toolCalls, toolResults, step, executedSignatures);
     };
 
-    const continueOnlineToolLoopAfterResults = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], toolCalls: ResponseToolCall[], toolResults: OnlineExecutedToolCall[], step: number) => {
+    const continueOnlineToolLoopAfterResults = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], toolCalls: ResponseToolCall[], toolResults: OnlineExecutedToolCall[], step: number, executedSignatures: Set<string>) => {
         const nextMessages: ResponseInputMessage[] = [
             ...messages,
             ...toolCalls.map(toolCallToResponseInput),
@@ -343,14 +371,15 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         if (next.toolCalls.length) {
             const writableCalls = next.toolCalls.filter(isWritableToolCall);
             if (confirmTools && writableCalls.length) {
+                const approval = buildOnlineApprovalPreview(next.toolCalls, snapshotRef.current, executedSignatures);
                 upsertMessage(sessionId, { id: assistantId, role: "assistant", text: next.content || streamed || "准备执行工具，等待确认。" });
                 const toolMessageId = nanoid();
-                pendingToolContextRef.current.set(toolMessageId, { messages: nextMessages, toolCalls: next.toolCalls, assistantId, step: step + 1 });
-                appendMessage(sessionId, { id: toolMessageId, role: "tool", title: "确认工具调用", text: summarizeToolCalls(next.toolCalls), detail: { status: "pending", step: step + 1, toolCalls: next.toolCalls } });
-                addOnlineLog("等待用户确认", next.toolCalls);
+                pendingToolContextRef.current.set(toolMessageId, { messages: nextMessages, toolCalls: next.toolCalls, assistantId, step: step + 1, executedSignatures: Array.from(executedSignatures) });
+                appendMessage(sessionId, { id: toolMessageId, role: "tool", title: "确认工具调用", text: approval.summary, detail: { status: "pending", step: step + 1, toolCalls: next.toolCalls, previews: approval.items, risk: approval.risk, dedupe: approval.dedupe } });
+                addOnlineLog("等待用户确认", { ...approval, toolCalls: next.toolCalls });
                 return;
             }
-            await continueOnlineToolLoop(sessionId, assistantId, nextMessages, next, step + 1);
+            await continueOnlineToolLoop(sessionId, assistantId, nextMessages, next, step + 1, executedSignatures);
             return;
         }
         upsertMessage(sessionId, { id: assistantId, role: "assistant", text: next.content || streamed || toolResults.map((item) => toolResultText(item.result)).join("\n") || "工具已执行。" });
@@ -384,26 +413,32 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         }
     };
 
-    const executeOnlineToolCall = (toolCall: ResponseToolCall): OnlineExecutedToolCall => {
+    const executeOnlineToolCall = (toolCall: ResponseToolCall, signature: string): OnlineExecutedToolCall => {
         try {
             const result = executeOnlineTool(toolCall.function.name, parseToolArguments(toolCall.function.arguments));
-            return { toolCallId: toolCall.id, name: toolCall.function.name, result };
+            return { toolCallId: toolCall.id, name: toolCall.function.name, signature, result };
         } catch (error) {
-            return { toolCallId: toolCall.id, name: toolCall.function.name, result: { ok: false, message: error instanceof Error ? error.message : "工具参数错误" } };
+            return { toolCallId: toolCall.id, name: toolCall.function.name, signature, result: { ok: false, message: error instanceof Error ? error.message : "工具参数错误" } };
         }
     };
 
-    const executeOnlineToolCalls = (toolCalls: ResponseToolCall[]) => {
+    const executeOnlineToolCalls = (toolCalls: ResponseToolCall[], executedSignatures: Set<string>) => {
         const results: OnlineExecutedToolCall[] = [];
         let stopped = false;
         toolCalls.forEach((toolCall) => {
-            if (stopped) {
-                results.push({ toolCallId: toolCall.id, name: toolCall.function.name, result: { ok: false, message: "前一个工具调用失败，未继续执行。" } });
+            const signature = toolCallSignature(toolCall);
+            if (executedSignatures.has(signature)) {
+                results.push({ toolCallId: toolCall.id, name: toolCall.function.name, signature, result: { ok: true, skipped: true, duplicate: true, message: "重复工具调用，已自动跳过。" } });
                 return;
             }
-            const result = executeOnlineToolCall(toolCall);
+            if (stopped) {
+                results.push({ toolCallId: toolCall.id, name: toolCall.function.name, signature, result: { ok: false, skipped: true, message: "前一个工具调用失败，未继续执行。" } });
+                return;
+            }
+            const result = executeOnlineToolCall(toolCall, signature);
             results.push(result);
-            if (!result.result.ok) stopped = true;
+            executedSignatures.add(signature);
+            if (!result.result.ok && !result.result.skipped) stopped = true;
         });
         return results;
     };
@@ -417,6 +452,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         const session = safeSessions.find((session) => session.messages.some((item) => item.id === messageId));
         addOnlineLog("批准工具", { messageId, toolCalls });
         const assistantId = pendingContext?.assistantId || "";
+        const executedSignatures = new Set<string>(pendingContext?.executedSignatures || []);
         if (!session) return;
         if (!toolCalls.length || !previousMessages.length || !assistantId) {
             upsertMessage(session.id, { id: messageId, role: "tool", title: "工具执行失败", text: "工具上下文不完整，无法执行。", detail: { ...detail, status: "failed" } });
@@ -424,11 +460,11 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
         }
         try {
             setIsRunning(true);
-            const results = executeOnlineToolCalls(toolCalls);
+            const results = executeOnlineToolCalls(toolCalls, executedSignatures);
             addOnlineLog("工具执行结果", results);
-            upsertMessage(session.id, { id: messageId, role: "tool", title: "工具执行完成", text: results.map((item) => toolResultText(item.result)).join("\n"), detail: { ...detail, results, status: "completed" } });
+            upsertMessage(session.id, { id: messageId, role: "tool", title: "工具执行完成", text: summarizeToolResults(results), detail: { ...detail, results, status: "completed", dedupe: summarizeResultDedupe(results) } });
             pendingToolContextRef.current.delete(messageId);
-            await continueOnlineToolLoopAfterResults(session.id, assistantId, previousMessages, toolCalls, results, pendingContext?.step || Number(detail.step) || 1);
+            await continueOnlineToolLoopAfterResults(session.id, assistantId, previousMessages, toolCalls, results, pendingContext?.step || Number(detail.step) || 1, executedSignatures);
         } catch (error) {
             addOnlineLog("工具续跑失败", error instanceof Error ? error.message : error);
             appendMessage(session.id, { id: nanoid(), role: "error", title: "操作失败", text: error instanceof Error ? error.message : "操作失败" });
@@ -530,7 +566,29 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
                             onDelete={(id) => setDeleteChatIds([id])}
                         />
                     ) : view === "log" ? (
-                        <OnlineAgentLogView logs={onlineLogs} theme={theme} context={{ model: activeModel, running: isRunning, confirmTools, messages: messages.length, nodes: snapshot.nodes.length, connections: snapshot.connections.length }} onClear={() => setOnlineLogs([])} />
+                        <OnlineAgentLogView
+                            logs={onlineLogs}
+                            theme={theme}
+                            context={{
+                                model: activeModel,
+                                running: isRunning,
+                                confirmTools,
+                                messages: messages.length,
+                                nodes: snapshot.nodes.length,
+                                connections: snapshot.connections.length,
+                                sessionId: activeSession?.id || "",
+                                sessionTitle: activeSession?.title || "新对话",
+                                sessionCount: safeSessions.length,
+                                historyCount: historySessions.length,
+                                pendingApprovals: onlineToolStats.pendingApprovals,
+                                executedTools: onlineToolStats.executedTools,
+                                skippedTools: onlineToolStats.skippedTools,
+                                failedTools: onlineToolStats.failedTools,
+                                duplicatedTools: onlineToolStats.duplicatedTools,
+                                lastError: onlineToolStats.lastError,
+                            }}
+                            onClear={() => setOnlineLogs([])}
+                        />
                     ) : messages.length ? (
                         <>
                             {messages.map((message) => (
@@ -806,7 +864,7 @@ function OnlineAgentLogView({ logs, theme, context, onClear }: { logs: OnlineAge
     const [mode, setMode] = useState<"text" | "json">("text");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const content = mode === "text" ? formatOnlineLogText(logs, context) : formatOnlineLogJson(logs, context);
-    const lastError = [...logs].reverse().find((item) => /错误|失败|error/i.test(`${item.title}\n${stringifyLog(item.data)}`));
+    const lastError = context.lastError || [...logs].reverse().find((item) => /错误|失败|error/i.test(`${item.title}\n${stringifyLog(item.data)}`))?.title || "";
     const copy = async (value = content) => {
         if (copyToClipboard(value)) return;
         textareaRef.current?.focus();
@@ -814,12 +872,20 @@ function OnlineAgentLogView({ logs, theme, context, onClear }: { logs: OnlineAge
     };
     return (
         <div className="flex min-h-full flex-col gap-3">
+            <div className="rounded-lg border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
+                <div className="font-medium" style={{ color: theme.node.text }}>会话诊断</div>
+                <div>会话：{context.sessionTitle || "新对话"}（{context.sessionId || "未命名"}）</div>
+                <div>会话数：{context.sessionCount}（历史 {context.historyCount}）</div>
+                <div>工具执行：成功 {context.executedTools}，跳过 {context.skippedTools}（重复 {context.duplicatedTools}），失败 {context.failedTools}</div>
+                <div>待确认计划：{context.pendingApprovals}</div>
+                {lastError ? <div style={{ color: "#dc2626" }}>最近错误：{lastError}</div> : null}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <Segmented size="small" value={mode} onChange={(value) => setMode(value as "text" | "json")} options={[{ label: "排查日志", value: "text" }, { label: "原始 JSON", value: "json" }]} />
                 <div className="flex items-center gap-2">
                     <span className="text-xs" style={{ color: theme.node.muted }}>{logs.length} 条</span>
                     <Button size="small" icon={<Copy className="size-3.5" />} disabled={!logs.length} onClick={() => void copy()}>复制</Button>
-                    <Button size="small" disabled={!lastError} onClick={() => lastError && void copy(formatOnlineLogText([lastError], context))}>最近错误</Button>
+                    <Button size="small" disabled={!lastError} onClick={() => lastError && void copy(lastError)}>最近错误</Button>
                     <Button size="small" danger type="text" icon={<Trash2 className="size-3.5" />} disabled={!logs.length} onClick={onClear}>清空</Button>
                 </div>
             </div>
@@ -907,9 +973,16 @@ function formatOnlineLogText(logs: OnlineAgentLog[], context: OnlineAgentLogCont
         `model: ${context.model || "none"}`,
         `running: ${context.running}`,
         `confirmTools: ${context.confirmTools}`,
+        `session: ${context.sessionTitle || "新对话"} (${context.sessionId || "n/a"})`,
+        `sessions: ${context.sessionCount} (history ${context.historyCount})`,
         `messages: ${context.messages}`,
         `nodes: ${context.nodes}`,
         `connections: ${context.connections}`,
+        `pendingApprovals: ${context.pendingApprovals}`,
+        `toolSuccess: ${context.executedTools}`,
+        `toolSkipped: ${context.skippedTools} (duplicate ${context.duplicatedTools})`,
+        `toolFailed: ${context.failedTools}`,
+        `lastError: ${context.lastError || "none"}`,
         `logs: ${logs.length}`,
     ].join("\n");
     const body = logs.map((log, index) => [`#${index + 1} ${log.time} ${log.title}`, log.data === undefined ? "" : stringifyLog(log.data)].filter(Boolean).join("\n")).join("\n\n---\n\n");
@@ -918,6 +991,39 @@ function formatOnlineLogText(logs: OnlineAgentLog[], context: OnlineAgentLogCont
 
 function formatOnlineLogJson(logs: OnlineAgentLog[], context: OnlineAgentLogContext) {
     return JSON.stringify({ context, logs: logs.map(({ time, title, data }) => ({ time, title, data })) }, null, 2);
+}
+
+function summarizeOnlineToolStats(messages: CanvasAssistantMessage[]): OnlineToolStats {
+    const stats: OnlineToolStats = { pendingApprovals: 0, executedTools: 0, skippedTools: 0, failedTools: 0, duplicatedTools: 0, lastError: "" };
+    messages.forEach((message) => {
+        if (message.role === "error" && !stats.lastError) stats.lastError = message.text;
+        if (message.role !== "tool") return;
+        const detail = objectDetail(message.detail);
+        const status = String(detail.status || "");
+        if (status === "pending") stats.pendingApprovals += 1;
+        const results = Array.isArray(detail.results) ? detail.results : [];
+        if (!results.length && status === "failed") stats.failedTools += 1;
+        results.forEach((entry) => {
+            const result = objectDetail(objectDetail(entry).result);
+            const messageText = String(result.message || "");
+            if (result.duplicate === true) {
+                stats.duplicatedTools += 1;
+                stats.skippedTools += 1;
+                return;
+            }
+            if (result.skipped === true) {
+                stats.skippedTools += 1;
+                return;
+            }
+            if (result.ok === false) {
+                stats.failedTools += 1;
+                if (!stats.lastError && messageText) stats.lastError = messageText;
+                return;
+            }
+            stats.executedTools += 1;
+        });
+    });
+    return stats;
 }
 
 function describeCanvasSnapshot(snapshot: CanvasAgentSnapshot) {
@@ -1062,8 +1168,180 @@ function toolCallToResponseInput(call: ResponseToolCall): ResponseInputMessage {
     return { type: "function_call", call_id: call.id, name: call.function.name, arguments: call.function.arguments, ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}) };
 }
 
-function summarizeToolCalls(calls: ResponseToolCall[]) {
-    return calls.map((call) => toolCallLabel(call.function.name)).join("，") || "工具调用";
+function summarizeToolResults(results: OnlineExecutedToolCall[]) {
+    return results.map((item) => `${toolCallLabel(item.name)}：${toolResultText(item.result)}`).join("\n") || "工具调用已执行。";
+}
+
+function summarizeResultDedupe(results: OnlineExecutedToolCall[]) {
+    const duplicate = results.filter((item) => item.result.duplicate).length;
+    const skipped = results.filter((item) => item.result.skipped).length;
+    return { total: results.length, duplicate, skipped };
+}
+
+function buildOnlineApprovalPreview(toolCalls: ResponseToolCall[], snapshot: CanvasAgentSnapshot, executedSignatures: Set<string>) {
+    const items = toolCalls.map((toolCall, index) => buildOnlineToolPreview(toolCall, index, snapshot, executedSignatures));
+    const risk = items.reduce<OnlineToolRisk>((max, item) => mergeRisk(max, item.risk), "low");
+    const duplicate = items.filter((item) => item.duplicate).length;
+    const executable = items.length - duplicate;
+    const summary = `待确认 ${items.length} 个动作（可执行 ${Math.max(0, executable)}，重复 ${duplicate}）。`;
+    return { summary, risk, items, dedupe: { planned: items.length, executable, duplicate } };
+}
+
+function buildOnlineToolPreview(toolCall: ResponseToolCall, index: number, snapshot: CanvasAgentSnapshot, executedSignatures: Set<string>): OnlineToolPreview {
+    const args = parseToolArgumentsLoose(toolCall.function.arguments);
+    const signature = toolCallSignature(toolCall);
+    const duplicate = executedSignatures.has(signature);
+    const risk = duplicate ? "low" : classifyToolRisk(toolCall.function.name, args);
+    return {
+        id: toolCall.id || `${toolCall.function.name}-${index + 1}`,
+        name: toolCall.function.name,
+        label: toolCallLabel(toolCall.function.name),
+        summary: summarizeToolPreview(toolCall.function.name, args, duplicate),
+        details: summarizeToolPreviewDetails(toolCall.function.name, args, snapshot, risk, duplicate),
+        risk,
+        signature,
+        duplicate,
+    };
+}
+
+function toolCallSignature(toolCall: ResponseToolCall) {
+    return `${toolCall.function.name}:${stableSerialize(parseToolArgumentsLoose(toolCall.function.arguments))}`;
+}
+
+function parseToolArgumentsLoose(value: string) {
+    try {
+        const parsed = JSON.parse(value || "{}");
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {}
+    return { __rawArguments: String(value || "") };
+}
+
+function stableSerialize(value: unknown): string {
+    if (value === null || typeof value !== "object") {
+        const serialized = JSON.stringify(value);
+        return serialized === undefined ? "null" : serialized;
+    }
+    if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
+        .join(",")}}`;
+}
+
+function classifyToolRisk(name: string, args: Record<string, unknown>): OnlineToolRisk {
+    if (name === "canvas_apply_ops") return classifyApplyOpsRisk(args.ops);
+    if (name === "canvas_delete_nodes" || name === "canvas_run_generation") return "high";
+    if (name === "canvas_generate_text" || name === "canvas_generate_image" || name === "canvas_generate_video" || name === "canvas_generate_audio") return "high";
+    if ((name === "canvas_create_config_node" || name === "canvas_create_generation_flow" || name === "canvas_create_image_prompt_flow") && Boolean(args.autoRun)) return "high";
+    if (name === "canvas_set_viewport" || name === "canvas_select_nodes") return "low";
+    return "medium";
+}
+
+function classifyApplyOpsRisk(value: unknown): OnlineToolRisk {
+    const opTypes = readOpTypes(value);
+    if (opTypes.some((type) => type === "delete_node" || type === "delete_connections" || type === "run_generation")) return "high";
+    if (opTypes.some((type) => type === "add_node" || type === "update_node" || type === "connect_nodes")) return "medium";
+    return "low";
+}
+
+function summarizeToolPreview(name: string, args: Record<string, unknown>, duplicate: boolean) {
+    const label = toolCallLabel(name);
+    if (duplicate) return `${label}（重复动作，执行时会自动跳过）`;
+    if (name === "canvas_apply_ops") {
+        const summary = summarizeApplyOps(args.ops);
+        return summary ? `批量操作：${summary}` : "批量修改画布节点";
+    }
+    if (name === "canvas_delete_nodes") {
+        const ids = stringArrayFromUnknown(args.ids);
+        return ids.length ? `删除 ${ids.length} 个节点` : "删除指定节点";
+    }
+    if (name === "canvas_move_nodes") {
+        const items = Array.isArray(args.items) ? args.items.length : 0;
+        return items ? `移动 ${items} 个节点` : "移动节点";
+    }
+    if (name === "canvas_connect_nodes") {
+        const items = Array.isArray(args.connections) ? args.connections.length : 0;
+        return items ? `连接 ${items} 组节点` : "连接节点";
+    }
+    if (name === "canvas_generate_text" || name === "canvas_generate_image" || name === "canvas_generate_video" || name === "canvas_generate_audio" || name === "canvas_create_generation_flow" || name === "canvas_create_image_prompt_flow") {
+        const prompt = String(args.prompt || "").trim();
+        return prompt ? `${label}：${truncateText(prompt, 40)}` : label;
+    }
+    return label;
+}
+
+function summarizeToolPreviewDetails(name: string, args: Record<string, unknown>, snapshot: CanvasAgentSnapshot, risk: OnlineToolRisk, duplicate: boolean) {
+    const details: string[] = [];
+    if (duplicate) details.push("检测到本轮已执行过同参数动作，批准后会自动跳过。");
+    if (name === "canvas_apply_ops") {
+        const opTypes = readOpTypes(args.ops);
+        if (opTypes.length) details.push(`操作类型：${summarizeOpTypes(opTypes)}`);
+    }
+    if (name === "canvas_delete_nodes") {
+        const ids = stringArrayFromUnknown(args.ids);
+        details.push(ids.length ? `预计删除节点：${ids.slice(0, 6).join("、")}${ids.length > 6 ? "..." : ""}` : "预计删除：根据模型返回的节点列表执行。");
+    }
+    if (name === "canvas_run_generation" || name === "canvas_generate_text" || name === "canvas_generate_image" || name === "canvas_generate_video" || name === "canvas_generate_audio") {
+        details.push("该操作会触发模型生成，可能带来额外耗时和费用。");
+    }
+    details.push(`当前画布：${snapshot.nodes.length} 节点 / ${snapshot.connections.length} 连线。`);
+    details.push(`风险等级：${riskLabel(risk)}。`);
+    return details.slice(0, 4);
+}
+
+function summarizeApplyOps(value: unknown) {
+    const opTypes = readOpTypes(value);
+    return opTypes.length ? summarizeOpTypes(opTypes) : "";
+}
+
+function readOpTypes(value: unknown) {
+    if (!Array.isArray(value)) return [] as string[];
+    return value
+        .map((item) => String(objectDetail(item).type || ""))
+        .filter(Boolean);
+}
+
+function summarizeOpTypes(types: string[]) {
+    const counts = types.reduce<Record<string, number>>((acc, type) => {
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+    }, {});
+    return Object.entries(counts)
+        .map(([type, count]) => `${opTypeLabel(type)} ${count}`)
+        .join("，");
+}
+
+function opTypeLabel(type: string) {
+    if (type === "add_node") return "新增节点";
+    if (type === "update_node") return "更新节点";
+    if (type === "delete_node") return "删除节点";
+    if (type === "delete_connections") return "删除连线";
+    if (type === "connect_nodes") return "连接节点";
+    if (type === "set_viewport") return "调整视口";
+    if (type === "select_nodes") return "更新选区";
+    if (type === "run_generation") return "触发生成";
+    return type;
+}
+
+function riskLabel(risk: OnlineToolRisk) {
+    if (risk === "high") return "高风险";
+    if (risk === "medium") return "中风险";
+    return "低风险";
+}
+
+function mergeRisk(current: OnlineToolRisk, next: OnlineToolRisk): OnlineToolRisk {
+    const rank: Record<OnlineToolRisk, number> = { low: 1, medium: 2, high: 3 };
+    return rank[next] > rank[current] ? next : current;
+}
+
+function stringArrayFromUnknown(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && Boolean(item)) : [];
+}
+
+function truncateText(value: string, max = 40) {
+    const text = String(value || "").trim();
+    return text.length <= max ? text : `${text.slice(0, max - 3)}...`;
 }
 
 function toolCallLabel(name: string) {
