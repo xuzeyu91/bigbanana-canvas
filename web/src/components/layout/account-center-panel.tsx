@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Alert, Button, Form, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag } from "antd";
+import { App, Button, Form, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag } from "antd";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -836,13 +836,6 @@ export function AccountCenterPanel() {
 
     return (
         <div className="space-y-4">
-            <Alert
-                type="info"
-                showIcon
-                className="rounded-lg !border-stone-200 !bg-stone-50/70 text-stone-700 dark:!border-stone-700 dark:!bg-stone-900/40 dark:text-stone-200"
-                title="账号中心（api.antsk.cn）"
-            />
-
             {!session ? (
                 <div className="space-y-3 rounded-lg border border-stone-200 p-4 dark:border-stone-800">
                     <div className="flex items-center justify-between">
