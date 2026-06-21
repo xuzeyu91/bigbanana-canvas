@@ -455,6 +455,20 @@ async function handleRequest(request: NextRequest, pathSegments: string[] = []) 
     if (pathname === "/amount" && method === "POST") return proxyAuthed(request, "/api/user/amount", { method: "POST", body });
     if (pathname === "/pay" && method === "POST") return proxyAuthed(request, "/api/user/pay", { method: "POST", body });
     if (pathname === "/topup" && method === "POST") return proxyAuthed(request, "/api/user/topup", { method: "POST", body });
+    if (pathname === "/subscription/plans" && method === "GET") return proxyAuthed(request, "/api/subscription/plans");
+    if (pathname === "/subscription/self" && method === "GET") return proxyAuthed(request, "/api/subscription/self");
+    if (pathname === "/subscription/self/preference" && method === "PUT") {
+        return proxyAuthed(request, "/api/subscription/self/preference", { method: "PUT", body });
+    }
+    if (pathname === "/subscription/stripe/pay" && method === "POST") {
+        return proxyAuthed(request, "/api/subscription/stripe/pay", { method: "POST", body });
+    }
+    if (pathname === "/subscription/creem/pay" && method === "POST") {
+        return proxyAuthed(request, "/api/subscription/creem/pay", { method: "POST", body });
+    }
+    if (pathname === "/subscription/epay/pay" && method === "POST") {
+        return proxyAuthed(request, "/api/subscription/epay/pay", { method: "POST", body });
+    }
 
     if (pathname === "/tokens" && method === "GET") {
         return proxyAuthed(

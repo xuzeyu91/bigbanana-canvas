@@ -7,8 +7,75 @@ import "./globals.css";
 import React from "react";
 
 export const metadata: Metadata = {
-    title: "BigBanana Canvas",
-    description: "BigBanana Canvas 创作工具",
+    metadataBase: new URL("https://canvas.tree456.com"),
+    title: {
+        default: "BigBanana Canvas - 无界画板生图创作工具",
+        template: "%s | BigBanana Canvas",
+    },
+    description: "在 BigBanana Canvas 中生成、连接和重组图片、文字与图形，让创作从单次生成变成连续推演。提供无限画布、提示词中心、AI生图、视频创作及素材管理，开启下一代AI协同创作体验。",
+    keywords: [
+        "BigBanana Canvas",
+        "无界画板",
+        "无限画布",
+        "生图创作",
+        "AI生图",
+        "视频创作",
+        "提示词中心",
+        "提示词库",
+        "我的素材",
+        "创意推演",
+        "AI作画",
+        "AI绘画",
+        "Midjourney画板",
+        "Stable Diffusion画板",
+    ],
+    authors: [{ name: "BigBanana", url: "https://canvas.tree456.com" }],
+    creator: "BigBanana",
+    publisher: "BigBanana",
+    alternates: {
+        canonical: "/",
+    },
+    icons: {
+        icon: [
+            { url: "/logo.svg", type: "image/svg+xml" },
+            { url: "/logo.png", type: "image/png" },
+        ],
+        shortcut: "/logo.png",
+        apple: "/logo.png",
+    },
+    openGraph: {
+        type: "website",
+        locale: "zh_CN",
+        url: "https://canvas.tree456.com",
+        title: "BigBanana Canvas - 无界画板生图创作工具",
+        description: "在 BigBanana Canvas 中生成、连接和重组图片、文字与图形，让创作从单次生成变成连续推演。提供无限画布、提示词中心、AI生图、视频创作及素材管理，开启下一代AI协同创作体验。",
+        siteName: "BigBanana Canvas",
+        images: [
+            {
+                url: "/logo.png",
+                width: 512,
+                height: 512,
+                alt: "BigBanana Canvas Logo",
+            },
+        ],
+    },
+    twitter: {
+        card: "summary_large_image",
+        title: "BigBanana Canvas - 无界画板生图创作工具",
+        description: "在 BigBanana Canvas 中生成、连接和重组图片、文字与图形，让创作从单次生成变成连续推演。提供无限画布、提示词中心、AI生图、视频创作及素材管理，开启下一代AI协同创作体验。",
+        images: ["/logo.png"],
+    },
+    robots: {
+        index: true,
+        follow: true,
+        googleBot: {
+            index: true,
+            follow: true,
+            "max-video-preview": -1,
+            "max-image-preview": "large",
+            "max-snippet": -1,
+        },
+    },
 };
 
 export default function RootLayout({

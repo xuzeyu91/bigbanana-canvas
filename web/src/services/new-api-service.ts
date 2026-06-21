@@ -103,11 +103,58 @@ export interface NewApiPayMethod {
 }
 
 export interface NewApiTopupInfo {
+    enable_online_topup?: boolean;
+    enable_stripe_topup?: boolean;
+    enable_creem_topup?: boolean;
+    creem_products?: string;
+    stripe_min_topup?: number;
     pay_methods?: NewApiPayMethod[] | string;
     amount_options?: number[];
     discount?: Record<string, number>;
     min_topup?: number;
     top_up_link?: string;
+}
+
+export interface NewApiSubscriptionPlan {
+    id: number;
+    title?: string;
+    subtitle?: string;
+    price_amount?: number;
+    currency?: string;
+    duration_unit?: string;
+    duration_value?: number;
+    custom_seconds?: number;
+    total_amount?: number;
+    quota_reset_period?: string;
+    quota_reset_custom_seconds?: number;
+    upgrade_group?: string;
+    max_purchase_per_user?: number;
+    stripe_price_id?: string;
+    creem_product_id?: string;
+}
+
+export interface NewApiSubscriptionPlanItem {
+    plan?: NewApiSubscriptionPlan;
+}
+
+export interface NewApiUserSubscription {
+    id: number;
+    plan_id: number;
+    amount_total?: number;
+    amount_used?: number;
+    start_time?: number;
+    end_time?: number;
+    status?: string;
+}
+
+export interface NewApiSubscriptionSummary {
+    subscription?: NewApiUserSubscription;
+}
+
+export interface NewApiSubscriptionSelf {
+    billing_preference?: string;
+    subscriptions?: NewApiSubscriptionSummary[];
+    all_subscriptions?: NewApiSubscriptionSummary[];
 }
 
 export interface NewApiLoginResult {
@@ -357,6 +404,51 @@ export async function getNewApiSelf(endpoint = getNewApiEndpoint()) {
 export async function getNewApiTopupInfo() {
     const payload = await proxyFetch<NewApiEnvelope<NewApiTopupInfo>>("/api/new-api/topup/info");
     return unwrapEnvelope(payload);
+}
+
+export async function getNewApiSubscriptionPlans() {
+    const payload = await proxyFetch<NewApiEnvelope<NewApiSubscriptionPlanItem[]>>("/api/new-api/subscription/plans");
+    return unwrapEnvelope(payload) || [];
+}
+
+export async function getNewApiSubscriptionSelf() {
+    const payload = await proxyFetch<NewApiEnvelope<NewApiSubscriptionSelf>>("/api/new-api/subscription/self");
+    return unwrapEnvelope(payload);
+}
+
+export async function updateNewApiSubscriptionPreference(billingPreference: string) {
+    const payload = await proxyFetch<NewApiEnvelope<NewApiSubscriptionSelf>>("/api/new-api/subscription/self/preference", {
+        method: "PUT",
+        body: JSON.stringify({ billing_preference: billingPreference }),
+    });
+    return unwrapEnvelope(payload);
+}
+
+export async function requestNewApiSubscriptionStripePay(planId: number) {
+    const payload = await proxyFetch<NewApiEnvelope<{ pay_link?: string }>>("/api/new-api/subscription/stripe/pay", {
+        method: "POST",
+        body: JSON.stringify({ plan_id: planId }),
+    });
+    return unwrapEnvelope(payload) || {};
+}
+
+export async function requestNewApiSubscriptionCreemPay(planId: number) {
+    const payload = await proxyFetch<NewApiEnvelope<{ checkout_url?: string }>>("/api/new-api/subscription/creem/pay", {
+        method: "POST",
+        body: JSON.stringify({ plan_id: planId }),
+    });
+    return unwrapEnvelope(payload) || {};
+}
+
+export async function requestNewApiSubscriptionEpayPay(planId: number, paymentMethod: string) {
+    const payload = await proxyFetch<NewApiEnvelope<Record<string, string>>>("/api/new-api/subscription/epay/pay", {
+        method: "POST",
+        body: JSON.stringify({ plan_id: planId, payment_method: paymentMethod }),
+    });
+    return {
+        url: payload.url || "",
+        params: unwrapEnvelope(payload) || {},
+    };
 }
 
 export async function requestNewApiAmount(amount: number) {

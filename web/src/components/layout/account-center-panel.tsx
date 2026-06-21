@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Alert, Button, Form, Input, Select, Space, Statistic, Table, Tabs, Tag } from "antd";
+import { App, Alert, Button, Form, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag } from "antd";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -18,6 +18,8 @@ import {
     getNewApiLogs,
     getNewApiLogsStat,
     getNewApiSelf,
+    getNewApiSubscriptionPlans,
+    getNewApiSubscriptionSelf,
     getNewApiTokenKey,
     getNewApiTokens,
     getNewApiTopupInfo,
@@ -28,15 +30,23 @@ import {
     registerNewApiUser,
     requestNewApiAmount,
     requestNewApiPay,
+    requestNewApiSubscriptionCreemPay,
+    requestNewApiSubscriptionEpayPay,
+    requestNewApiSubscriptionStripePay,
     sendNewApiVerificationCode,
     submitPaymentForm,
     toUnixTimestamp,
+    updateNewApiSubscriptionPreference,
     updateNewApiTokenStatus,
     verifyNewApiTwoFactor,
     type NewApiLog,
     type NewApiLogStats,
     type NewApiSession,
     type NewApiStatus,
+    type NewApiSubscriptionPlan,
+    type NewApiSubscriptionPlanItem,
+    type NewApiSubscriptionSelf,
+    type NewApiSubscriptionSummary,
     type NewApiToken,
     type NewApiTopupInfo,
 } from "@/services/new-api-service";
@@ -46,6 +56,66 @@ const TOKEN_STATUS_ENABLED = 1;
 const TOKEN_STATUS_DISABLED = 2;
 
 const DEFAULT_LOG_TYPE = 2;
+const BILLING_PREFERENCE_OPTIONS = [
+    { value: "balance_first", label: "优先钱包" },
+    { value: "subscription_first", label: "优先套餐" },
+    { value: "subscription_only", label: "仅用套餐" },
+];
+
+function formatBillingPreference(value?: string) {
+    const matched = BILLING_PREFERENCE_OPTIONS.find((item) => item.value === value);
+    return matched?.label || "优先钱包";
+}
+
+function formatSecondsToPeriod(seconds?: number) {
+    const value = Number(seconds || 0);
+    if (!Number.isFinite(value) || value <= 0) return "未设置";
+    if (value % (24 * 60 * 60) === 0) return `${value / (24 * 60 * 60)} 天`;
+    if (value % (60 * 60) === 0) return `${value / (60 * 60)} 小时`;
+    if (value % 60 === 0) return `${value / 60} 分钟`;
+    return `${value} 秒`;
+}
+
+function formatSubscriptionDuration(plan?: NewApiSubscriptionPlan) {
+    if (!plan) return "未设置";
+    const durationValue = Number(plan.duration_value || 0);
+    const unit = String(plan.duration_unit || "").toLowerCase();
+    if (durationValue > 0) {
+        if (unit === "day") return `${durationValue} 天`;
+        if (unit === "week") return `${durationValue} 周`;
+        if (unit === "month") return `${durationValue} 个月`;
+        if (unit === "year") return `${durationValue} 年`;
+        return `${durationValue} ${plan.duration_unit || "周期"}`;
+    }
+    return formatSecondsToPeriod(plan.custom_seconds);
+}
+
+function formatSubscriptionResetPeriod(plan?: NewApiSubscriptionPlan) {
+    if (!plan) return "不重置";
+    const period = String(plan.quota_reset_period || "").toLowerCase();
+    if (!period || period === "none" || period === "never") return "不重置";
+    if (period === "day") return "每天";
+    if (period === "week") return "每周";
+    if (period === "month") return "每月";
+    if (period === "year") return "每年";
+    if (period === "custom") return `每 ${formatSecondsToPeriod(plan.quota_reset_custom_seconds)}`;
+    return period;
+}
+
+function formatSubscriptionPrice(plan: NewApiSubscriptionPlan, status: NewApiStatus | null) {
+    const symbol = status?.custom_currency_symbol || "￥";
+    const amount = Number(plan.price_amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) return "价格待配置";
+    return `${symbol}${amount.toFixed(2)}`;
+}
+
+function formatSubscriptionTag(status?: string, expired = false) {
+    if (expired) return <Tag color="default">已过期</Tag>;
+    if (status === "active") return <Tag color="success">生效中</Tag>;
+    if (status === "canceled") return <Tag color="warning">已取消</Tag>;
+    if (status === "pending") return <Tag color="processing">待生效</Tag>;
+    return <Tag>{status || "未知状态"}</Tag>;
+}
 
 function formatDateTime(timestamp?: number) {
     if (!timestamp) return "—";
@@ -130,6 +200,12 @@ export function AccountCenterPanel() {
     const [estimateLoading, setEstimateLoading] = useState(false);
     const [payLoading, setPayLoading] = useState(false);
     const [redeemCode, setRedeemCode] = useState("");
+    const [subscriptionPlans, setSubscriptionPlans] = useState<NewApiSubscriptionPlanItem[]>([]);
+    const [subscriptionSelf, setSubscriptionSelf] = useState<NewApiSubscriptionSelf | null>(null);
+    const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+    const [billingPreference, setBillingPreference] = useState("balance_first");
+    const [billingPreferenceLoading, setBillingPreferenceLoading] = useState(false);
+    const [subscriptionPayingKey, setSubscriptionPayingKey] = useState("");
 
     const defaultStart = useMemo(() => formatDateTimeInput(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)), []);
     const defaultEnd = useMemo(() => formatDateTimeInput(new Date()), []);
@@ -146,6 +222,44 @@ export function AccountCenterPanel() {
     const logPageSize = 20;
 
     const topupMethods = useMemo(() => getTopupMethods(topupInfo), [topupInfo]);
+    const walletTopupMethods = useMemo(
+        () => (topupInfo?.enable_online_topup === false ? [] : topupMethods).filter((method) => !["stripe", "creem"].includes(method.type)),
+        [topupInfo?.enable_online_topup, topupMethods],
+    );
+    const planTitleMap = useMemo(() => {
+        const map = new Map<number, string>();
+        subscriptionPlans.forEach((item) => {
+            if (!item.plan?.id) return;
+            map.set(item.plan.id, item.plan.title || `套餐 #${item.plan.id}`);
+        });
+        return map;
+    }, [subscriptionPlans]);
+    const subscriptionSummaries = useMemo(() => {
+        const list = subscriptionSelf?.subscriptions?.length ? subscriptionSelf.subscriptions : subscriptionSelf?.all_subscriptions || [];
+        return list.filter((item): item is NewApiSubscriptionSummary => Boolean(item?.subscription?.id));
+    }, [subscriptionSelf]);
+    const activeSubscriptionSummaries = useMemo(() => {
+        const now = Date.now() / 1000;
+        return subscriptionSummaries.filter((item) => {
+            const subscription = item.subscription;
+            if (!subscription) return false;
+            const endTime = Number(subscription.end_time || 0);
+            const isExpired = endTime > 0 && endTime < now;
+            return subscription.status === "active" && !isExpired;
+        });
+    }, [subscriptionSummaries]);
+    const currentPlanSummaryText = useMemo(() => {
+        const source = activeSubscriptionSummaries.length ? activeSubscriptionSummaries : subscriptionSummaries;
+        if (!source.length) return "暂无套餐";
+        return source
+            .map((item) => {
+                const subscription = item.subscription;
+                if (!subscription) return "";
+                return planTitleMap.get(subscription.plan_id) || `套餐 #${subscription.plan_id}`;
+            })
+            .filter(Boolean)
+            .join("、");
+    }, [activeSubscriptionSummaries, planTitleMap, subscriptionSummaries]);
 
     const refreshProfile = useCallback(async (silent = false) => {
         try {
@@ -181,8 +295,9 @@ export function AccountCenterPanel() {
         try {
             const info = await getNewApiTopupInfo();
             const methods = getTopupMethods(info);
+            const onlineMethods = (info.enable_online_topup === false ? [] : methods).filter((item) => !["stripe", "creem"].includes(item.type));
             setTopupInfo(info);
-            setSelectedPaymentMethod((current) => current || methods[0]?.type || "");
+            setSelectedPaymentMethod((current) => current || onlineMethods[0]?.type || methods[0]?.type || "");
             setSelectedTopupAmount((current) => {
                 if (current) return current;
                 const firstAmount = info.amount_options?.[0];
@@ -194,6 +309,37 @@ export function AccountCenterPanel() {
             setTopupLoading(false);
         }
     }, [message]);
+
+    const loadSubscriptionData = useCallback(
+        async (silent = true) => {
+            setSubscriptionLoading(true);
+            try {
+                const [plansResult, selfResult] = await Promise.allSettled([getNewApiSubscriptionPlans(), getNewApiSubscriptionSelf()]);
+                if (plansResult.status === "fulfilled") {
+                    setSubscriptionPlans(plansResult.value || []);
+                } else {
+                    setSubscriptionPlans([]);
+                    if (!silent) {
+                        message.warning(plansResult.reason instanceof Error ? plansResult.reason.message : "获取套餐列表失败");
+                    }
+                }
+                if (selfResult.status === "fulfilled") {
+                    const next = selfResult.value || {};
+                    setSubscriptionSelf(next);
+                    setBillingPreference(next.billing_preference || "balance_first");
+                } else {
+                    setSubscriptionSelf(null);
+                    setBillingPreference("balance_first");
+                    if (!silent) {
+                        message.warning(selfResult.reason instanceof Error ? selfResult.reason.message : "获取订阅信息失败");
+                    }
+                }
+            } finally {
+                setSubscriptionLoading(false);
+            }
+        },
+        [message],
+    );
 
     const loadLogs = useCallback(
         async (page = 1) => {
@@ -270,7 +416,7 @@ export function AccountCenterPanel() {
                         if (!projectApiKey.trim()) {
                             await syncProjectKey(false);
                         }
-                        await Promise.all([loadTokens(1), loadTopupInfo()]);
+                        await Promise.all([loadTokens(1), loadTopupInfo(), loadSubscriptionData()]);
                     }
                 } else {
                     setSession(null);
@@ -279,7 +425,7 @@ export function AccountCenterPanel() {
                 setStatusLoading(false);
             }
         },
-        [loadTokens, loadTopupInfo, message, projectApiKey, refreshProfile, syncProjectKey],
+        [loadSubscriptionData, loadTokens, loadTopupInfo, message, projectApiKey, refreshProfile, syncProjectKey],
     );
 
     useEffect(() => {
@@ -291,6 +437,10 @@ export function AccountCenterPanel() {
         if (!session) {
             setTokens([]);
             setTokenTotal(0);
+            setTopupInfo(null);
+            setSubscriptionPlans([]);
+            setSubscriptionSelf(null);
+            setBillingPreference("balance_first");
             return;
         }
         void loadTokens(1);
@@ -305,9 +455,9 @@ export function AccountCenterPanel() {
             const synced = await syncProjectKey(false);
             if (synced) message.success("登录成功，账号 Key 已可直接使用");
             else message.warning("登录成功，但自动同步 Key 失败，请在令牌页手动同步");
-            await Promise.all([loadTokens(1), loadTopupInfo()]);
+            await Promise.all([loadTokens(1), loadTopupInfo(), loadSubscriptionData()]);
         },
-        [loadTokens, loadTopupInfo, message, refreshProfile, syncProjectKey],
+        [loadSubscriptionData, loadTokens, loadTopupInfo, message, refreshProfile, syncProjectKey],
     );
 
     const handleLogin = useCallback(async () => {
@@ -418,6 +568,10 @@ export function AccountCenterPanel() {
             setNeedsTwoFactor(false);
             setTokens([]);
             setTokenTotal(0);
+            setTopupInfo(null);
+            setSubscriptionPlans([]);
+            setSubscriptionSelf(null);
+            setBillingPreference("balance_first");
             message.success("已退出登录");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "退出登录失败");
@@ -553,6 +707,62 @@ export function AccountCenterPanel() {
             setPayLoading(false);
         }
     }, [message, redeemCode, refreshProfile]);
+
+    const handleUpdateBillingPreference = useCallback(
+        async (value: string) => {
+            setBillingPreference(value);
+            setBillingPreferenceLoading(true);
+            try {
+                const result = await updateNewApiSubscriptionPreference(value);
+                setSubscriptionSelf(result || null);
+                setBillingPreference(result?.billing_preference || value || "balance_first");
+                message.success(`已更新扣费偏好：${formatBillingPreference(result?.billing_preference || value)}`);
+            } catch (error) {
+                message.error(error instanceof Error ? error.message : "更新扣费偏好失败");
+                await loadSubscriptionData(false);
+            } finally {
+                setBillingPreferenceLoading(false);
+            }
+        },
+        [loadSubscriptionData, message],
+    );
+
+    const handleSubscriptionPay = useCallback(
+        async (planId: number, paymentMethod: string) => {
+            if (!planId) {
+                message.warning("套餐信息无效");
+                return;
+            }
+            if (!paymentMethod) {
+                message.warning("请选择支付方式");
+                return;
+            }
+            const key = `${planId}:${paymentMethod}`;
+            setSubscriptionPayingKey(key);
+            try {
+                if (paymentMethod === "stripe") {
+                    const result = await requestNewApiSubscriptionStripePay(planId);
+                    if (!result.pay_link) throw new Error("未返回 Stripe 支付链接");
+                    window.open(result.pay_link, "_blank", "noopener,noreferrer");
+                } else if (paymentMethod === "creem") {
+                    const result = await requestNewApiSubscriptionCreemPay(planId);
+                    if (!result.checkout_url) throw new Error("未返回 Creem 支付链接");
+                    window.open(result.checkout_url, "_blank", "noopener,noreferrer");
+                } else {
+                    const { url, params } = await requestNewApiSubscriptionEpayPay(planId, paymentMethod);
+                    if (!url) throw new Error("支付链接为空");
+                    if (Object.keys(params || {}).length > 0) submitPaymentForm(url, params);
+                    else window.open(url, "_blank", "noopener,noreferrer");
+                }
+                message.success("已拉起套餐支付，请完成后刷新套餐状态");
+            } catch (error) {
+                message.error(error instanceof Error ? error.message : "拉起套餐支付失败");
+            } finally {
+                setSubscriptionPayingKey("");
+            }
+        },
+        [message],
+    );
 
     const tokenColumns = useMemo(
         () => [
@@ -722,9 +932,12 @@ export function AccountCenterPanel() {
                             <div className="text-base font-semibold">{session.user?.display_name || session.username}</div>
                             <div className="mt-1 text-xs text-stone-500">当前项目 Key：{maskKey(projectApiKey)}</div>
                             <div className="mt-1 text-xs text-stone-500">账户余额：{formatQuota(session.user?.quota, status)}</div>
+                            <div className="mt-1 text-xs text-stone-500">当前套餐：{currentPlanSummaryText}</div>
                         </div>
                         <Space wrap>
-                            <Button onClick={() => void refreshProfile(false)}>刷新余额</Button>
+                            <Button loading={topupLoading || subscriptionLoading} onClick={() => void Promise.allSettled([refreshProfile(false), loadTopupInfo(), loadSubscriptionData(false)])}>
+                                刷新账户
+                            </Button>
                             <Button loading={syncingKey} onClick={() => void syncProjectKey(true)}>
                                 同步账号 Key
                             </Button>
@@ -773,54 +986,178 @@ export function AccountCenterPanel() {
                                 children: (
                                     <div className="space-y-4">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <Button loading={topupLoading} onClick={() => void loadTopupInfo()}>
-                                                刷新充值配置
+                                            <Button loading={topupLoading || subscriptionLoading} onClick={() => void Promise.allSettled([refreshProfile(true), loadTopupInfo(), loadSubscriptionData(false)])}>
+                                                刷新余额与套餐
                                             </Button>
-                                            <Button href={status?.top_up_link || "https://api.antsk.cn"} target="_blank" rel="noreferrer noopener">
+                                            <Button href={status?.top_up_link || topupInfo?.top_up_link || "https://api.antsk.cn"} target="_blank" rel="noreferrer noopener">
                                                 官网充值
                                             </Button>
                                         </div>
 
-                                        <div className="grid gap-3 md:grid-cols-3">
-                                            <Form.Item label="支付方式" className="mb-0">
-                                                <Select
-                                                    value={selectedPaymentMethod || undefined}
-                                                    options={topupMethods.map((item) => ({ value: item.type, label: item.name }))}
-                                                    onChange={setSelectedPaymentMethod}
-                                                    placeholder="请选择支付方式"
-                                                />
-                                            </Form.Item>
-                                            <Form.Item label="充值金额" className="mb-0">
-                                                <Select
-                                                    value={selectedTopupAmount || undefined}
-                                                    options={(topupInfo?.amount_options || []).map((value) => ({ value: String(value), label: `${value}` }))}
-                                                    onChange={setSelectedTopupAmount}
-                                                    placeholder="请选择金额"
-                                                />
-                                            </Form.Item>
-                                            <Form.Item label="预估支付金额" className="mb-0">
-                                                <div className="flex h-8 items-center text-sm text-stone-700 dark:text-stone-200">{estimatedAmount === null ? "未计算" : `${status?.custom_currency_symbol || "￥"}${estimatedAmount.toFixed(2)}`}</div>
-                                            </Form.Item>
+                                        <div className="space-y-3 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <div className="text-sm font-semibold">当前订阅</div>
+                                                    <div className="text-xs text-stone-500">登录后可查看当前套餐、剩余额度与到期时间。</div>
+                                                </div>
+                                                <Form.Item label="扣费偏好" className="mb-0 min-w-[220px]">
+                                                    <Select
+                                                        value={billingPreference}
+                                                        options={BILLING_PREFERENCE_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+                                                        onChange={(value) => void handleUpdateBillingPreference(value)}
+                                                        loading={billingPreferenceLoading}
+                                                        disabled={subscriptionLoading}
+                                                    />
+                                                </Form.Item>
+                                            </div>
+
+                                            {subscriptionLoading ? (
+                                                <div className="text-sm text-stone-500">正在加载套餐信息...</div>
+                                            ) : subscriptionSummaries.length ? (
+                                                <div className="grid gap-3 md:grid-cols-2">
+                                                    {subscriptionSummaries.map((item) => {
+                                                        const subscription = item.subscription;
+                                                        if (!subscription) return null;
+                                                        const endTime = Number(subscription.end_time || 0);
+                                                        const isExpired = endTime > 0 && endTime < Date.now() / 1000;
+                                                        const totalAmount = Number(subscription.amount_total || 0);
+                                                        const usedAmount = Number(subscription.amount_used || 0);
+                                                        const remainAmount = totalAmount > 0 ? Math.max(0, totalAmount - usedAmount) : 0;
+                                                        const percent = totalAmount > 0 ? Math.min(100, Math.max(0, (usedAmount / totalAmount) * 100)) : 0;
+                                                        const remainDays = endTime > 0 ? Math.max(0, Math.ceil((endTime * 1000 - Date.now()) / (24 * 60 * 60 * 1000))) : null;
+                                                        const title = planTitleMap.get(subscription.plan_id) || `套餐 #${subscription.plan_id}`;
+                                                        return (
+                                                            <div key={subscription.id} className="rounded-md border border-stone-200 p-3 dark:border-stone-700">
+                                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                                    <div className="text-sm font-medium">{title}</div>
+                                                                    {formatSubscriptionTag(subscription.status, isExpired)}
+                                                                </div>
+                                                                <div className="mt-2 text-xs text-stone-500">
+                                                                    到期时间：{formatDateTime(subscription.end_time)}{remainDays !== null ? `（剩余 ${remainDays} 天）` : ""}
+                                                                </div>
+                                                                <div className="mt-1 text-xs text-stone-500">
+                                                                    套餐额度：{totalAmount > 0 ? `${formatQuota(usedAmount, status, 4)} / ${formatQuota(totalAmount, status, 4)}，剩余 ${formatQuota(remainAmount, status, 4)}` : "不限额度"}
+                                                                </div>
+                                                                {totalAmount > 0 ? <Progress className="mt-2 mb-0" size="small" percent={Number(percent.toFixed(2))} /> : null}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <div className="text-sm text-stone-500">当前没有生效套餐，可在下方直接购买。</div>
+                                            )}
+                                            <div className="text-xs text-stone-500">当前扣费策略：{formatBillingPreference(billingPreference)}</div>
                                         </div>
 
-                                        <Space wrap>
-                                            <Button loading={estimateLoading} onClick={() => void handleEstimateAmount()}>
-                                                计算预估金额
-                                            </Button>
-                                            <Button type="primary" loading={payLoading} onClick={() => void handlePay()}>
-                                                立即充值
-                                            </Button>
-                                        </Space>
+                                        <div className="space-y-3 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
+                                            <div>
+                                                <div className="text-sm font-semibold">购买套餐</div>
+                                                <div className="text-xs text-stone-500">支持 Stripe、Creem 和本地支付渠道购买套餐。</div>
+                                            </div>
+                                            {subscriptionLoading ? (
+                                                <div className="text-sm text-stone-500">正在加载可购买套餐...</div>
+                                            ) : subscriptionPlans.length ? (
+                                                <div className="grid gap-3 md:grid-cols-2">
+                                                    {subscriptionPlans.map((item) => {
+                                                        const plan = item.plan;
+                                                        if (!plan?.id) return null;
+                                                        const paymentOptions = [
+                                                            ...(plan.stripe_price_id && topupInfo?.enable_stripe_topup ? [{ key: "stripe", label: "Stripe" }] : []),
+                                                            ...(plan.creem_product_id && topupInfo?.enable_creem_topup ? [{ key: "creem", label: "Creem" }] : []),
+                                                            ...walletTopupMethods.map((method) => ({ key: method.type, label: method.name || method.type })),
+                                                        ];
+                                                        const payLimit = Number(plan.max_purchase_per_user || 0);
+                                                        const isPaying = Boolean(subscriptionPayingKey) && subscriptionPayingKey.startsWith(`${plan.id}:`);
+                                                        return (
+                                                            <div key={plan.id} className="rounded-md border border-stone-200 p-3 dark:border-stone-700">
+                                                                <div className="text-base font-semibold">{plan.title || `套餐 #${plan.id}`}</div>
+                                                                {plan.subtitle ? <div className="mt-1 text-xs text-stone-500">{plan.subtitle}</div> : null}
+                                                                <div className="mt-3 text-lg font-semibold">{formatSubscriptionPrice(plan, status)}</div>
+                                                                <div className="mt-1 text-xs text-stone-500">
+                                                                    有效期：{formatSubscriptionDuration(plan)} · 额度：{plan.total_amount ? formatQuota(plan.total_amount, status, 4) : "不限"} · 重置：{formatSubscriptionResetPeriod(plan)}
+                                                                </div>
+                                                                {payLimit > 0 ? <div className="mt-1 text-xs text-stone-500">每个账号最多购买 {payLimit} 次</div> : null}
+                                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                                    {paymentOptions.length ? (
+                                                                        paymentOptions.map((method) => (
+                                                                            <Button
+                                                                                key={`${plan.id}-${method.key}`}
+                                                                                size="small"
+                                                                                loading={isPaying && subscriptionPayingKey === `${plan.id}:${method.key}`}
+                                                                                disabled={isPaying}
+                                                                                onClick={() => void handleSubscriptionPay(plan.id, method.key)}
+                                                                            >
+                                                                                {method.label}
+                                                                            </Button>
+                                                                        ))
+                                                                    ) : (
+                                                                        <span className="text-xs text-stone-500">当前套餐暂无可用支付方式</span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <div className="text-sm text-stone-500">当前没有可购买套餐，请稍后刷新或联系管理员配置。</div>
+                                            )}
+                                        </div>
 
-                                        <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-                                            <Input
-                                                value={redeemCode}
-                                                placeholder="输入兑换码"
-                                                onChange={(event) => setRedeemCode(event.target.value)}
-                                            />
-                                            <Button loading={payLoading} onClick={() => void handleRedeemCode()}>
-                                                兑换
-                                            </Button>
+                                        <div className="space-y-3 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
+                                            <div>
+                                                <div className="text-sm font-semibold">金额充值</div>
+                                                <div className="text-xs text-stone-500">为钱包直接充值，适合临时补充额度。</div>
+                                            </div>
+
+                                            {!walletTopupMethods.length ? (
+                                                <div className="text-sm text-stone-500">当前没有可用钱包充值方式，可使用上方套餐或兑换码。</div>
+                                            ) : (
+                                                <>
+                                                    <div className="grid gap-3 md:grid-cols-3">
+                                                        <Form.Item label="支付方式" className="mb-0">
+                                                            <Select
+                                                                value={selectedPaymentMethod || undefined}
+                                                                options={walletTopupMethods.map((item) => ({ value: item.type, label: item.name }))}
+                                                                onChange={setSelectedPaymentMethod}
+                                                                placeholder="请选择支付方式"
+                                                            />
+                                                        </Form.Item>
+                                                        <Form.Item label="充值金额" className="mb-0">
+                                                            <Select
+                                                                value={selectedTopupAmount || undefined}
+                                                                options={(topupInfo?.amount_options || []).map((value) => ({ value: String(value), label: `${value}` }))}
+                                                                onChange={setSelectedTopupAmount}
+                                                                placeholder="请选择金额"
+                                                            />
+                                                        </Form.Item>
+                                                        <Form.Item label="预估支付金额" className="mb-0">
+                                                            <div className="flex h-8 items-center text-sm text-stone-700 dark:text-stone-200">
+                                                                {estimatedAmount === null ? "未计算" : `${status?.custom_currency_symbol || "￥"}${estimatedAmount.toFixed(2)}`}
+                                                            </div>
+                                                        </Form.Item>
+                                                    </div>
+
+                                                    <Space wrap>
+                                                        <Button loading={estimateLoading} onClick={() => void handleEstimateAmount()}>
+                                                            计算预估金额
+                                                        </Button>
+                                                        <Button type="primary" loading={payLoading} onClick={() => void handlePay()}>
+                                                            立即充值
+                                                        </Button>
+                                                    </Space>
+                                                </>
+                                            )}
+
+                                            <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                                                <Input
+                                                    value={redeemCode}
+                                                    placeholder="输入兑换码"
+                                                    onChange={(event) => setRedeemCode(event.target.value)}
+                                                />
+                                                <Button loading={payLoading} onClick={() => void handleRedeemCode()}>
+                                                    兑换
+                                                </Button>
+                                            </div>
                                         </div>
                                     </div>
                                 ),
