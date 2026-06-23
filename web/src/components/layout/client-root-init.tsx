@@ -46,8 +46,8 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         updateConfig("baseUrl", ANTSK_BASE_URL);
         if (apiKey) updateConfig("apiKey", apiKey);
         openConfigDialog(false);
-        if (importedBaseUrl && importedBaseUrl !== ANTSK_BASE_URL) message.warning(`当前 Base URL 固定为 ${ANTSK_BASE_URL}，已忽略传入地址`);
-        message.success("已导入本地直连配置");
+        if (importedBaseUrl && importedBaseUrl !== ANTSK_BASE_URL) message.warning(`当前模型 Base URL 固定为 ${ANTSK_BASE_URL}，已忽略传入地址`);
+        message.success("已导入模型代理配置");
     }, [config.channels, message, openConfigDialog, updateConfig]);
 
     useEffect(() => {

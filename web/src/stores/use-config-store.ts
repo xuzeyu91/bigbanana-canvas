@@ -59,7 +59,8 @@ export type WebdavSyncConfig = {
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 const CHANNEL_MODEL_SEPARATOR = "::";
-export const ANTSK_BASE_URL = "https://api.antsk.cn";
+export const ANTSK_UPSTREAM_BASE_URL = "https://api.antsk.cn";
+export const ANTSK_BASE_URL = "/api/new-api/gateway";
 const DEFAULT_IMAGE_MODEL_NAME = "gemini-3-pro-image-preview";
 const DEFAULT_IMAGE_MODEL_NAMES = [DEFAULT_IMAGE_MODEL_NAME, "gemini-3.1-flash-image-preview", "gpt-image-2", "gpt-image-1.5"];
 const DEFAULT_VIDEO_MODEL_NAMES = ["sora-2", "veo_3_1-fast", "viduq3-turbo", "viduq3-pro", "doubao-seedance-1-5-pro", "doubao-seedance-2-0-fast", "doubao-seedance-2-0", "happyhorse-1.0"];
@@ -456,6 +457,18 @@ export function buildApiUrl(baseUrl: string, path: string) {
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") || lowerBaseUrl.endsWith("/api/v3") || lowerBaseUrl.endsWith("/api/plan/v3") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return `${apiBaseUrl}${path}`;
+}
+
+export function proxyAntskUrl(url: string) {
+    if (!url) return url;
+    try {
+        const parsed = new URL(url);
+        const upstream = new URL(ANTSK_UPSTREAM_BASE_URL);
+        if (parsed.protocol !== upstream.protocol || parsed.host !== upstream.host) return url;
+        return `${ANTSK_BASE_URL}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+        return url;
+    }
 }
 
 function normalizeArkPlanBaseUrl(baseUrl: string) {

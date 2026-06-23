@@ -9,7 +9,7 @@ import { AccountCenterPanel } from "@/components/layout/account-center-panel";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
-import { ANTSK_BASE_URL, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, normalizeModelOptionValue, useConfigStore, type AiConfig, type ApiCallFormat, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { ANTSK_BASE_URL, ANTSK_UPSTREAM_BASE_URL, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, normalizeModelOptionValue, useConfigStore, type AiConfig, type ApiCallFormat, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -256,13 +256,13 @@ export function AppConfigModal() {
                                                 <Form.Item label="调用格式" className="mb-0">
                                                     <Select value={channel.apiFormat} options={apiFormatOptions} onChange={(value: ApiCallFormat) => updateChannelApiFormat(channel, value)} />
                                                 </Form.Item>
-                                                <Form.Item label="Base URL" extra={`当前固定为 ${ANTSK_BASE_URL}`} className="mb-0">
+                                                <Form.Item label="Base URL" extra={`模型请求经 ${ANTSK_BASE_URL} 代理到 ${ANTSK_UPSTREAM_BASE_URL}`} className="mb-0">
                                                     <Input value={ANTSK_BASE_URL} disabled />
                                                 </Form.Item>
                                                 <Form.Item label="API Key" className="mb-0">
                                                     <div className="flex items-center gap-2">
                                                         <Input.Password className="flex-1" value={channel.apiKey} onChange={(event) => updateChannel(channel.id, { apiKey: event.target.value })} />
-                                                        <Button href="https://api.antsk.cn" target="_blank" rel="noopener noreferrer">
+                                                        <Button href={ANTSK_UPSTREAM_BASE_URL} target="_blank" rel="noopener noreferrer">
                                                             去获取
                                                         </Button>
                                                     </div>

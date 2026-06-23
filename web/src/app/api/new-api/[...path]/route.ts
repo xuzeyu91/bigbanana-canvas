@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -37,6 +38,23 @@ const DEFAULT_NEW_API_ENDPOINT = normalizeEndpoint(process.env.NEW_API_PROXY_DEF
 const ALLOW_PRIVATE_HOSTS = String(process.env.NEW_API_ALLOW_PRIVATE_HOSTS || "").toLowerCase() === "true";
 const ALLOWED_HOST_SUFFIXES = parseAllowedHosts(process.env.NEW_API_ALLOWED_HOSTS);
 const SESSION_STORE_KEY = "__INFINITE_CANVAS_NEW_API_SESSIONS__";
+const GATEWAY_PATH_PREFIX = "/gateway";
+const GATEWAY_ROUTE_PREFIX = "/api/new-api/gateway";
+const HOP_BY_HOP_HEADERS = new Set([
+    "connection",
+    "content-encoding",
+    "content-length",
+    "cookie",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "set-cookie",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+]);
 
 function parseInteger(value: string | undefined, fallback: number) {
     const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -282,6 +300,51 @@ function withClearedSessionCookie(request: NextRequest, headers = new Headers())
     return headers;
 }
 
+function copyGatewayRequestHeaders(request: NextRequest) {
+    const headers = new Headers();
+    request.headers.forEach((value, key) => {
+        const normalizedKey = key.toLowerCase();
+        if (!normalizedKey || HOP_BY_HOP_HEADERS.has(normalizedKey)) return;
+        headers.set(key, value);
+    });
+    return headers;
+}
+
+function copyGatewayResponseHeaders(headers: Headers) {
+    const result = new Headers();
+    headers.forEach((value, key) => {
+        const normalizedKey = key.toLowerCase();
+        if (!normalizedKey || HOP_BY_HOP_HEADERS.has(normalizedKey)) return;
+        result.set(key, value);
+    });
+    return result;
+}
+
+async function proxyGatewayRequest(request: NextRequest) {
+    const endpoint = validateEndpoint(DEFAULT_NEW_API_ENDPOINT);
+    const upstreamPath = request.nextUrl.pathname.slice(GATEWAY_ROUTE_PREFIX.length) || "/";
+    const upstreamUrl = `${endpoint}${upstreamPath}${request.nextUrl.search}`;
+    const method = request.method.toUpperCase();
+    const init: RequestInit & { duplex?: "half" } = {
+        method,
+        headers: copyGatewayRequestHeaders(request),
+        redirect: "follow",
+    };
+
+    if (!["GET", "HEAD"].includes(method)) {
+        init.body = request.body;
+        init.duplex = "half";
+    }
+
+    const response = await fetch(upstreamUrl, init);
+    const noBody = method === "HEAD" || response.status === 204 || response.status === 304;
+    return new Response(noBody ? null : response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: copyGatewayResponseHeaders(response.headers),
+    });
+}
+
 async function proxyAuthed(
     request: NextRequest,
     upstreamPath: string,
@@ -317,6 +380,15 @@ async function proxyAuthed(
 async function handleRequest(request: NextRequest, pathSegments: string[] = []) {
     const pathname = `/${pathSegments.join("/")}`;
     const method = request.method.toUpperCase();
+    if (pathname === GATEWAY_PATH_PREFIX || pathname.startsWith(`${GATEWAY_PATH_PREFIX}/`)) {
+        try {
+            return await proxyGatewayRequest(request);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Gateway proxy failed";
+            const status = /endpoint|EndPoint|私网|允许列表|http\/https/.test(message) ? 400 : 502;
+            return jsonResponse(status, { success: false, message, data: null });
+        }
+    }
     const body = await readBody(request);
 
     const tokenStatusMatch = pathname.match(/^\/tokens\/(\d+)\/status$/);
