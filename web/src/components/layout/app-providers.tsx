@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect } from "react";
+import { Suspense } from "react";
 import { ProConfigProvider } from "@ant-design/pro-components";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App, ConfigProvider } from "antd";
@@ -36,7 +37,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
             <ProConfigProvider dark={dark}>
                 <App>
                     <QueryClientProvider client={queryClient}>
-                        <BaiduHmTracker />
+                        <Suspense fallback={null}>
+                            <BaiduHmTracker />
+                        </Suspense>
                         <ClientRootInit>{children}</ClientRootInit>
                     </QueryClientProvider>
                 </App>
