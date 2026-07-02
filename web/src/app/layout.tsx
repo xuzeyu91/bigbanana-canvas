@@ -99,11 +99,14 @@ export default function RootLayout({
                     }}
                 />
                 <Script
-                    id="baidu-hm"
-                    strategy="afterInteractive"
-                    dangerouslySetInnerHTML={{
-                        __html: `window._hmt=window._hmt||[];(function(){var hm=document.createElement("script");hm.src="https://hm.baidu.com/hm.js?a279a450048889338ec3afdd144535c6";var s=document.getElementsByTagName("script")[0];if(s&&s.parentNode){s.parentNode.insertBefore(hm,s);}})();`,
-                    }}
+                    id="baidu-hm-init"
+                    strategy="beforeInteractive"
+                    dangerouslySetInnerHTML={{ __html: "window._hmt = window._hmt || [];" }}
+                />
+                <Script
+                    id="baidu-hm-src"
+                    src="https://hm.baidu.com/hm.js?a279a450048889338ec3afdd144535c6"
+                    strategy="beforeInteractive"
                 />
                 <AntdRegistry>
                     <AppProviders>{children}</AppProviders>
