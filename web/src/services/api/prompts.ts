@@ -7,7 +7,7 @@ export type Prompt = {
     prompt: string;
     tags: string[];
     category: string;
-    githubUrl: string;
+    sourceUrl: string;
     preview: string;
     createdAt: string;
     updatedAt: string;

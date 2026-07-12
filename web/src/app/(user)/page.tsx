@@ -41,8 +41,8 @@ export default function IndexPage() {
     const promptShowcaseWithCover = promptShowcase.filter((item) => Boolean(item.coverUrl?.trim()));
 
     useEffect(() => {
-        void fetchPrompts({ pageSize: 12 })
-            .then((data) => setPromptShowcase(data.items))
+        void fetchPrompts({ pageSize: 100 })
+            .then((data) => setPromptShowcase(data.items.filter((item) => Boolean(item.coverUrl?.trim())).slice(0, 12)))
             .catch((error) => message.error(error instanceof Error ? error.message : "获取提示词失败"));
     }, [message]);
 
