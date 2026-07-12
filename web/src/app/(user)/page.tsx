@@ -1,29 +1,40 @@
 "use client";
 
 import { ArrowRight } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { App, Button, Image, Tag } from "antd";
 
 import { fetchPrompts, type Prompt } from "@/services/api/prompts";
 import { navigationTools } from "@/constant/navigation-tools";
 import { cn } from "@/lib/utils";
-
-function Highlighter({ action, color, children }: { action: "highlight" | "underline"; color: string; children: ReactNode }) {
-    return (
-        <span className="relative inline-block px-1">
-            {action === "highlight" ? (
-                <span className="absolute inset-x-0 bottom-0 top-1 rounded-sm opacity-45" style={{ backgroundColor: color }} />
-            ) : (
-                <span className="absolute inset-x-0 bottom-0 h-1 rounded-full opacity-80" style={{ backgroundColor: color }} />
-            )}
-            <span className="relative font-medium text-stone-800 dark:text-stone-200">{children}</span>
-        </span>
-    );
-}
+import { useThemeStore } from "@/stores/use-theme-store";
+import FuzzyText from "@/components/ui/fuzzy-text";
 
 export default function IndexPage() {
     const { message } = App.useApp();
+    const theme = useThemeStore((s) => s.theme);
     const [primaryTool] = navigationTools;
+
+    const titleGradient = useMemo(
+        () =>
+            theme === "dark"
+                ? ["#fafaf9", "#fafaf9", "#a8a29e", "#fafaf9", "#fafaf9"]
+                : ["#111827", "#111827", "#6b7280", "#111827", "#111827"],
+        [theme],
+    );
+    const highlightGradients = useMemo(
+        () =>
+            theme === "dark"
+                ? {
+                      brand: ["#fff7ed", "#fb923c", "#fff7ed"],
+                      visual: ["#eff6ff", "#60a5fa", "#eff6ff"],
+                  }
+                : {
+                      brand: ["#b45309", "#f59e0b", "#b45309"],
+                      visual: ["#1d4ed8", "#60a5fa", "#1d4ed8"],
+                  },
+        [theme],
+    );
     const [promptShowcase, setPromptShowcase] = useState<Prompt[]>([]);
     const [previewIndex, setPreviewIndex] = useState(0);
     const [previewOpen, setPreviewOpen] = useState(false);
@@ -42,16 +53,54 @@ export default function IndexPage() {
                 <div className="pointer-events-none absolute right-[23%] top-[48%] size-20 rounded-full border border-dashed border-stone-200 dark:border-stone-800" />
 
                 <div className="relative flex min-h-[620px] flex-col items-center justify-center pt-10 text-center">
-                    <h1 className="ai-title-aurora max-w-5xl text-balance text-5xl font-semibold tracking-normal sm:text-7xl lg:text-8xl">BigBanana Canvas</h1>
+                    <FuzzyText
+                        fontSize="clamp(3rem, 8vw, 6rem)"
+                        fontWeight={600}
+                        baseIntensity={0.12}
+                        hoverIntensity={0.35}
+                        fuzzRange={24}
+                        enableHover
+                        direction="both"
+                        gradient={titleGradient}
+                        className="max-w-full"
+                    >
+                        BigBanana Canvas
+                    </FuzzyText>
                     <p className="mt-8 max-w-3xl text-balance text-lg leading-8 text-stone-500 dark:text-stone-400">
                         在
-                        <Highlighter action="highlight" color="#FF9800">
+                        <FuzzyText
+                            fontSize={18}
+                            fontWeight={500}
+                            baseIntensity={0.1}
+                            hoverIntensity={0.28}
+                            fuzzRange={4}
+                            horizontalPadding={4}
+                            horizontalMargin={4}
+                            enableHover
+                            direction="horizontal"
+                            transitionDuration={120}
+                            gradient={highlightGradients.brand}
+                            className="inline-block align-[-0.25em]"
+                        >
                             BigBanana Canvas
-                        </Highlighter>
+                        </FuzzyText>
                         中生成、连接和重组
-                        <Highlighter action="highlight" color="#87CEFA">
+                        <FuzzyText
+                            fontSize={18}
+                            fontWeight={500}
+                            baseIntensity={0.1}
+                            hoverIntensity={0.28}
+                            fuzzRange={4}
+                            horizontalPadding={4}
+                            horizontalMargin={4}
+                            enableHover
+                            direction="horizontal"
+                            transitionDuration={120}
+                            gradient={highlightGradients.visual}
+                            className="inline-block align-[-0.25em]"
+                        >
                             图片、文字与图形
-                        </Highlighter>
+                        </FuzzyText>
                         ，让创作从单次生成变成连续推演。
                     </p>
                     <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
