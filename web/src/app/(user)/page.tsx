@@ -1,40 +1,17 @@
 "use client";
 
 import { ArrowRight } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { App, Button, Image, Tag } from "antd";
 
+import GlitchText from "@/components/ui/glitch-text";
 import { fetchPrompts, type Prompt } from "@/services/api/prompts";
 import { navigationTools } from "@/constant/navigation-tools";
 import { cn } from "@/lib/utils";
-import { useThemeStore } from "@/stores/use-theme-store";
-import FuzzyText from "@/components/ui/fuzzy-text";
 
 export default function IndexPage() {
     const { message } = App.useApp();
-    const theme = useThemeStore((s) => s.theme);
     const [primaryTool] = navigationTools;
-
-    const titleGradient = useMemo(
-        () =>
-            theme === "dark"
-                ? ["#fafaf9", "#fafaf9", "#a8a29e", "#fafaf9", "#fafaf9"]
-                : ["#111827", "#111827", "#6b7280", "#111827", "#111827"],
-        [theme],
-    );
-    const highlightGradients = useMemo(
-        () =>
-            theme === "dark"
-                ? {
-                      brand: ["#fff7ed", "#fb923c", "#fff7ed"],
-                      visual: ["#eff6ff", "#60a5fa", "#eff6ff"],
-                  }
-                : {
-                      brand: ["#b45309", "#f59e0b", "#b45309"],
-                      visual: ["#1d4ed8", "#60a5fa", "#1d4ed8"],
-                  },
-        [theme],
-    );
     const [promptShowcase, setPromptShowcase] = useState<Prompt[]>([]);
     const [previewIndex, setPreviewIndex] = useState(0);
     const [previewOpen, setPreviewOpen] = useState(false);
@@ -53,57 +30,18 @@ export default function IndexPage() {
                 <div className="pointer-events-none absolute right-[23%] top-[48%] size-20 rounded-full border border-dashed border-stone-200 dark:border-stone-800" />
 
                 <div className="relative flex min-h-[620px] flex-col items-center justify-center pt-10 text-center">
-                    <FuzzyText
-                        fontSize="clamp(3rem, 8vw, 6rem)"
-                        fontWeight={600}
-                        baseIntensity={0.12}
-                        hoverIntensity={0.35}
-                        fuzzRange={24}
-                        fps={30}
-                        enableHover
-                        direction="both"
-                        gradient={titleGradient}
-                        className="max-w-full"
-                    >
+                    <GlitchText speed={1.2} className="max-w-full text-[clamp(2rem,8vw,6rem)] font-semibold leading-none text-stone-900 dark:text-stone-100">
                         BigBanana Canvas
-                    </FuzzyText>
+                    </GlitchText>
                     <p className="mt-8 max-w-3xl text-balance text-lg leading-8 text-stone-500 dark:text-stone-400">
                         在
-                        <FuzzyText
-                            fontSize={18}
-                            fontWeight={500}
-                            baseIntensity={0.1}
-                            hoverIntensity={0.28}
-                            fuzzRange={4}
-                            fps={30}
-                            horizontalPadding={4}
-                            horizontalMargin={4}
-                            enableHover
-                            direction="horizontal"
-                            transitionDuration={120}
-                            gradient={highlightGradients.brand}
-                            className="inline-block align-[-0.25em]"
-                        >
+                        <GlitchText enableOnHover className="mx-1 inline-block align-[-0.1em] font-medium text-amber-700 dark:text-orange-300">
                             BigBanana Canvas
-                        </FuzzyText>
+                        </GlitchText>
                         中生成、连接和重组
-                        <FuzzyText
-                            fontSize={18}
-                            fontWeight={500}
-                            baseIntensity={0.1}
-                            hoverIntensity={0.28}
-                            fuzzRange={4}
-                            fps={30}
-                            horizontalPadding={4}
-                            horizontalMargin={4}
-                            enableHover
-                            direction="horizontal"
-                            transitionDuration={120}
-                            gradient={highlightGradients.visual}
-                            className="inline-block align-[-0.25em]"
-                        >
+                        <GlitchText enableOnHover className="mx-1 inline-block align-[-0.1em] font-medium text-blue-700 dark:text-blue-300">
                             图片、文字与图形
-                        </FuzzyText>
+                        </GlitchText>
                         ，让创作从单次生成变成连续推演。
                     </p>
                     <div className="mt-10 flex flex-wrap items-center justify-center gap-3">

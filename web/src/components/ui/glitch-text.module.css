@@ -1,0 +1,78 @@
+.root {
+    display: inline-block;
+    position: relative;
+    isolation: isolate;
+    white-space: nowrap;
+}
+
+.root::before,
+.root::after {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    color: inherit;
+    content: attr(data-text);
+    pointer-events: none;
+}
+
+.root::before {
+    text-shadow: var(--glitch-before-shadow);
+}
+
+.root::after {
+    text-shadow: var(--glitch-after-shadow);
+}
+
+.root:not(.onHover)::before {
+    animation: glitch-slice var(--glitch-before-duration) infinite linear alternate-reverse;
+    transform: translateX(-0.045em);
+}
+
+.root:not(.onHover)::after {
+    animation: glitch-slice var(--glitch-after-duration) infinite linear alternate-reverse;
+    transform: translateX(0.045em);
+}
+
+.onHover::before,
+.onHover::after {
+    opacity: 0;
+}
+
+.onHover:hover::before {
+    animation: glitch-slice var(--glitch-before-duration) infinite linear alternate-reverse;
+    opacity: 1;
+    transform: translateX(-0.045em);
+}
+
+.onHover:hover::after {
+    animation: glitch-slice var(--glitch-after-duration) infinite linear alternate-reverse;
+    opacity: 1;
+    transform: translateX(0.045em);
+}
+
+@keyframes glitch-slice {
+    0%,
+    100% {
+        clip-path: inset(78% 0 5% 0);
+    }
+    18% {
+        clip-path: inset(12% 0 70% 0);
+    }
+    36% {
+        clip-path: inset(48% 0 30% 0);
+    }
+    54% {
+        clip-path: inset(4% 0 82% 0);
+    }
+    72% {
+        clip-path: inset(66% 0 12% 0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .root::before,
+    .root::after {
+        animation: none !important;
+        opacity: 0 !important;
+    }
+}
