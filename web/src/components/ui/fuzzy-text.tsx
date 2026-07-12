@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 
 interface FuzzyTextProps {
     children: React.ReactNode;
@@ -50,8 +50,10 @@ const FuzzyText: React.FC<FuzzyTextProps> = ({
     className = "",
 }) => {
     const canvasRef = useRef<HTMLCanvasElement & { cleanupFuzzyText?: () => void }>(null);
+    const [isReady, setIsReady] = useState(false);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
+        setIsReady(false);
         let animationFrameId: number;
         let isCancelled = false;
         let glitchTimeoutId: ReturnType<typeof setTimeout>;
@@ -83,10 +85,12 @@ const FuzzyText: React.FC<FuzzyTextProps> = ({
             const canvasFontSize = `${numericFontSize}px`;
             const fontString = `${fontWeight} ${canvasFontSize} ${computedFontFamily}`;
 
-            try {
-                await document.fonts.load(fontString);
-            } catch {
-                await document.fonts.ready;
+            if (!document.fonts.check(fontString)) {
+                try {
+                    await document.fonts.load(fontString);
+                } catch {
+                    await document.fonts.ready;
+                }
             }
             if (isCancelled) return;
 
@@ -229,7 +233,8 @@ const FuzzyText: React.FC<FuzzyTextProps> = ({
                 animationFrameId = window.requestAnimationFrame(run);
             };
 
-            animationFrameId = window.requestAnimationFrame(run);
+            run(performance.now());
+            setIsReady(true);
 
             const isInsideTextArea = (x: number, y: number) =>
                 x >= interactiveLeft && x <= interactiveRight && y >= interactiveTop && y <= interactiveBottom;
@@ -334,7 +339,16 @@ const FuzzyText: React.FC<FuzzyTextProps> = ({
         letterSpacing,
     ]);
 
-    return <canvas ref={canvasRef} className={className} style={{ maxWidth: "100%", height: "auto" }} />;
+    return (
+        <span className={`relative inline-block max-w-full ${className}`}>
+            {!isReady && (
+                <span className="inline-block whitespace-nowrap" style={{ color: gradient?.[0] ?? color, fontFamily, fontSize, fontWeight }}>
+                    {children}
+                </span>
+            )}
+            <canvas ref={canvasRef} className={isReady ? "block max-w-full" : "hidden"} style={{ maxWidth: "100%", height: "auto" }} />
+        </span>
+    );
 };
 
 export default FuzzyText;

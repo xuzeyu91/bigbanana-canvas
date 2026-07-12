@@ -59,6 +59,7 @@ export default function IndexPage() {
                         baseIntensity={0.12}
                         hoverIntensity={0.35}
                         fuzzRange={24}
+                        fps={30}
                         enableHover
                         direction="both"
                         gradient={titleGradient}
@@ -74,6 +75,7 @@ export default function IndexPage() {
                             baseIntensity={0.1}
                             hoverIntensity={0.28}
                             fuzzRange={4}
+                            fps={30}
                             horizontalPadding={4}
                             horizontalMargin={4}
                             enableHover
@@ -91,6 +93,7 @@ export default function IndexPage() {
                             baseIntensity={0.1}
                             hoverIntensity={0.28}
                             fuzzRange={4}
+                            fps={30}
                             horizontalPadding={4}
                             horizontalMargin={4}
                             enableHover
