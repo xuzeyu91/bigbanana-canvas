@@ -9,6 +9,7 @@ import { formatBytes } from "@/lib/image-utils";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "../types";
+import { productionRoleLabel } from "../utils/canvas-production";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -325,6 +326,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 {showImageInfo && hasImageContent ? <ImageInfoBar node={data} /> : null}
                 {resourceLabel ? <ResourceLabelBadge reference={resourceLabel} theme={theme} /> : null}
                 {data.type === CanvasNodeType.Video && videoReferenceStats ? <VideoReferenceBadge stats={videoReferenceStats} theme={theme} /> : null}
+                {data.metadata?.resourceRole || data.metadata?.shotTitle ? <ProductionBadge node={data} theme={theme} /> : null}
 
                 {!hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
 
@@ -473,6 +475,16 @@ function VideoReferenceBadge({ stats, theme }: { stats: VideoReferenceStats; the
         >
             参考图 {stats.imageCount}/{stats.maxImages}
             {stats.exceeded ? "（超出）" : ""}
+        </span>
+    );
+}
+
+function ProductionBadge({ node, theme }: { node: CanvasNodeData; theme: any }) {
+    const role = productionRoleLabel(node.metadata?.resourceRole);
+    const label = [role, node.metadata?.resourceLocked ? "锁定" : "", node.metadata?.shotTitle ? `镜头 · ${node.metadata.shotTitle}` : ""].filter(Boolean).join(" · ");
+    return (
+        <span className="pointer-events-none absolute bottom-2 right-2 z-30 max-w-[75%] truncate rounded-md border px-1.5 py-0.5 text-[10px] font-medium" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}>
+            {label}
         </span>
     );
 }

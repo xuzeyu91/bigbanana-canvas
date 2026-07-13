@@ -20,6 +20,20 @@ export enum CanvasNodeType {
 export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
+export type CanvasProductionResourceRole = "character" | "scene" | "prop" | "style";
+export type CanvasShotStage = "draft" | "ready" | "generating" | "completed";
+
+export type CanvasGenerationRecord = {
+    id: string;
+    mode: CanvasGenerationMode;
+    status: "running" | "success" | "error" | "cancelled";
+    model?: string;
+    prompt?: string;
+    startedAt: string;
+    finishedAt?: string;
+    error?: string;
+    warningCount?: number;
+};
 
 export type CanvasNodeMetadata = {
     content?: string;
@@ -60,6 +74,12 @@ export type CanvasNodeMetadata = {
     mimeType?: string;
     bytes?: number;
     durationMs?: number;
+    resourceRole?: CanvasProductionResourceRole;
+    resourceLocked?: boolean;
+    shotId?: string;
+    shotTitle?: string;
+    shotStage?: CanvasShotStage;
+    generationRecords?: CanvasGenerationRecord[];
 };
 
 export type CanvasNodeData = {
