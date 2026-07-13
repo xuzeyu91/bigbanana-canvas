@@ -3,7 +3,8 @@ import axios from "axios";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildSeedancePromptText, isArkPlanBaseUrl, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { boolConfig, buildSeedancePromptText, isArkPlanBaseUrl, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { normalizeVideoAspectRatio, normalizeVideoDuration } from "@/lib/video-model-capabilities";
 import { buildApiUrl, modelOptionName, proxyAntskUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -36,7 +37,7 @@ type SeedanceTask = {
 };
 type ApiEnvelope<T> = T | { code?: number; data?: T | null; msg?: string; message?: string; success?: boolean };
 type RequestOptions = { signal?: AbortSignal };
-type OpenAIVideoTaskOptions = { useReferenceArray: boolean; maxReferences: number; supportedSeconds?: number[] };
+type OpenAIVideoTaskOptions = { useReferenceArray: boolean; maxReferences: number };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance"; model: string };
@@ -72,10 +73,10 @@ function shouldUseSeedanceTaskApi(config: AiConfig, model: string) {
 function resolveOpenAIVideoTaskOptions(model: string): OpenAIVideoTaskOptions {
     if (isDoubaoOpenAiModel(model)) {
         const isMultiReferenceModel = model.includes("2-0") || model.includes("happyhorse");
-        return { useReferenceArray: true, maxReferences: isMultiReferenceModel ? 4 : 2, supportedSeconds: isMultiReferenceModel ? [5, 10, 15] : undefined };
+        return { useReferenceArray: true, maxReferences: isMultiReferenceModel ? 4 : 2 };
     }
-    if (model.includes("veo")) return { useReferenceArray: true, maxReferences: 2, supportedSeconds: [8] };
-    if (model.includes("sora")) return { useReferenceArray: false, maxReferences: 1, supportedSeconds: [4, 8, 12] };
+    if (model.includes("veo")) return { useReferenceArray: true, maxReferences: 2 };
+    if (model.includes("sora")) return { useReferenceArray: false, maxReferences: 1 };
     return { useReferenceArray: false, maxReferences: 1 };
 }
 
@@ -127,9 +128,10 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     const body = new FormData();
     body.append("model", modelOptionName(model));
     body.append("prompt", prompt);
-    body.append("seconds", normalizeVideoSeconds(config.videoSeconds, taskOptions.supportedSeconds));
-    if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-    const targetSize = videoReferenceSize(config.size);
+    body.append("seconds", String(normalizeVideoDuration(config.videoSeconds, model)));
+    const size = normalizeVideoSize(normalizeVideoAspectRatio(config.size, model));
+    if (size) body.append("size", size);
+    const targetSize = videoReferenceSize(size || "1280x720");
     const selectedReferences = references.slice(0, taskOptions.maxReferences);
     const useReferenceArray = taskOptions.useReferenceArray && selectedReferences.length > 1;
     const files = await Promise.all(
@@ -159,7 +161,7 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 async function createViduGatewayTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const firstReference = references[0];
     if (!firstReference) throw new Error("Vidu Q3 模型需要至少一张参考图作为首帧");
-    const targetSize = viduReferenceSize(config.size);
+    const targetSize = viduReferenceSize(normalizeVideoAspectRatio(config.size, model));
     const [startImage, endImage] = await Promise.all([
         imageToDataUrl(firstReference).then((image) => fitVideoReference(image, targetSize)),
         references[1] ? imageToDataUrl(references[1]).then((image) => fitVideoReference(image, targetSize)) : Promise.resolve(""),
@@ -167,7 +169,7 @@ async function createViduGatewayTask(config: AiConfig, model: string, prompt: st
     const payload = {
         model: modelOptionName(model),
         prompt,
-        duration: Number(normalizeVideoSeconds(config.videoSeconds)),
+        duration: normalizeVideoDuration(config.videoSeconds, model),
         images: [startImage, endImage].filter(Boolean),
         metadata: {
             resolution: "1080p",
@@ -248,9 +250,9 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     const payload = {
         model: modelOptionName(model),
         content,
-        ratio: normalizeSeedanceRatio(config.size),
+        ratio: normalizeVideoAspectRatio(config.size, model),
         resolution: normalizeSeedanceResolution(config.vquality, modelOptionName(model)),
-        duration: normalizeSeedanceDuration(config.videoSeconds),
+        duration: normalizeVideoDuration(config.videoSeconds, model),
         generate_audio: boolConfig(config.videoGenerateAudio, true),
         watermark: boolConfig(config.videoWatermark, false),
     };
@@ -363,14 +365,6 @@ function assertVideoConfig(config: AiConfig, model: string) {
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (!config.apiKey.trim()) throw new Error("请先配置 API Key");
     if (config.apiFormat === "gemini") throw new Error("Gemini 调用格式暂不支持视频生成，请使用 OpenAI 格式渠道");
-}
-
-function normalizeVideoSeconds(value: string, supportedSeconds?: number[]) {
-    const seconds = Math.floor(Number(value) || 6);
-    if (supportedSeconds?.length) {
-        return String(supportedSeconds.reduce((closest, current) => (Math.abs(current - seconds) < Math.abs(closest - seconds) ? current : closest)));
-    }
-    return String(Math.max(1, Math.min(20, seconds)));
 }
 
 function normalizeVideoSize(value: string) {
