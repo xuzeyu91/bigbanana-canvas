@@ -142,7 +142,18 @@ export function buildNodeResponseMessages(context: NodeGenerationContext): AiTex
 
 export async function hydrateNodeGenerationContext(context: NodeGenerationContext) {
     const { imageToDataUrl } = await import("@/services/image-storage");
-    return { ...context, referenceImages: await Promise.all(context.referenceImages.map(async (image) => ({ ...image, dataUrl: await imageToDataUrl(image) }))) };
+    const referenceImages = await Promise.all(
+        context.referenceImages.map(async (image) => {
+            try {
+                const dataUrl = await imageToDataUrl(image);
+                if (!dataUrl.startsWith("data:image/")) throw new Error("invalid image data");
+                return { ...image, dataUrl };
+            } catch {
+                throw new Error(`参考图片「${image.name}」读取失败，请重新上传后再试`);
+            }
+        }),
+    );
+    return { ...context, referenceImages };
 }
 
 function readNodeTextInput(node: CanvasNodeData) {
