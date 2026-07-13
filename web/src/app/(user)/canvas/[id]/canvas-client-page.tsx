@@ -3249,10 +3249,8 @@ function buildVideoReferenceLimitMessage(nodeTitle: string, maxImages: number, c
 
 function resolveVideoReferenceImageLimit(model: string, baseUrl = "") {
     const normalizedModel = String(model || "").trim().toLowerCase();
-    const normalizedBaseUrl = String(baseUrl || "").toLowerCase();
-    if (normalizedModel.includes("viduq3")|| normalizedModel.includes("veo")) return 2;
-    if (normalizedModel.includes("doubao-seedance")) return 9;
-    if (normalizedModel.includes("seedance") || normalizedModel.includes("251215") || normalizedModel.includes("260128")) return 9;
+    if (normalizedModel.includes("viduq3") || normalizedModel.includes("veo") || normalizedModel.includes("doubao-seedance-1-5")) return 2;
+    if (normalizedModel.includes("doubao-seedance") || normalizedModel.includes("seedance") || normalizedModel.includes("251215") || normalizedModel.includes("260128")) return 4;
     return 1;
 }
 
