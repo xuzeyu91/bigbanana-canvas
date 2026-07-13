@@ -1,25 +1,13 @@
 "use client";
 
 import { ArrowRight } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { App, Button, Image, Tag } from "antd";
 
+import GlitchText from "@/components/ui/glitch-text";
 import { fetchPrompts, type Prompt } from "@/services/api/prompts";
 import { navigationTools } from "@/constant/navigation-tools";
 import { cn } from "@/lib/utils";
-
-function Highlighter({ action, color, children }: { action: "highlight" | "underline"; color: string; children: ReactNode }) {
-    return (
-        <span className="relative inline-block px-1">
-            {action === "highlight" ? (
-                <span className="absolute inset-x-0 bottom-0 top-1 rounded-sm opacity-45" style={{ backgroundColor: color }} />
-            ) : (
-                <span className="absolute inset-x-0 bottom-0 h-1 rounded-full opacity-80" style={{ backgroundColor: color }} />
-            )}
-            <span className="relative font-medium text-stone-800 dark:text-stone-200">{children}</span>
-        </span>
-    );
-}
 
 export default function IndexPage() {
     const { message } = App.useApp();
@@ -30,8 +18,8 @@ export default function IndexPage() {
     const promptShowcaseWithCover = promptShowcase.filter((item) => Boolean(item.coverUrl?.trim()));
 
     useEffect(() => {
-        void fetchPrompts({ pageSize: 12 })
-            .then((data) => setPromptShowcase(data.items))
+        void fetchPrompts({ pageSize: 100 })
+            .then((data) => setPromptShowcase(data.items.filter((item) => Boolean(item.coverUrl?.trim())).slice(0, 12)))
             .catch((error) => message.error(error instanceof Error ? error.message : "获取提示词失败"));
     }, [message]);
 
@@ -42,16 +30,18 @@ export default function IndexPage() {
                 <div className="pointer-events-none absolute right-[23%] top-[48%] size-20 rounded-full border border-dashed border-stone-200 dark:border-stone-800" />
 
                 <div className="relative flex min-h-[620px] flex-col items-center justify-center pt-10 text-center">
-                    <h1 className="ai-title-aurora max-w-5xl text-balance text-5xl font-semibold tracking-normal sm:text-7xl lg:text-8xl">BigBanana Canvas</h1>
+                    <GlitchText speed={1.2} className="max-w-full text-[clamp(2rem,8vw,6rem)] font-black leading-none text-stone-900 dark:text-stone-100">
+                        BigBanana Canvas
+                    </GlitchText>
                     <p className="mt-8 max-w-3xl text-balance text-lg leading-8 text-stone-500 dark:text-stone-400">
                         在
-                        <Highlighter action="highlight" color="#FF9800">
+                        <GlitchText enableOnHover className="mx-1 inline-block align-[-0.1em] font-medium text-amber-700 dark:text-orange-300">
                             BigBanana Canvas
-                        </Highlighter>
+                        </GlitchText>
                         中生成、连接和重组
-                        <Highlighter action="highlight" color="#87CEFA">
+                        <GlitchText enableOnHover className="mx-1 inline-block align-[-0.1em] font-medium text-blue-700 dark:text-blue-300">
                             图片、文字与图形
-                        </Highlighter>
+                        </GlitchText>
                         ，让创作从单次生成变成连续推演。
                     </p>
                     <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
