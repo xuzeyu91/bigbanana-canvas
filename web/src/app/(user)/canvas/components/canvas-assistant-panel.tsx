@@ -6,7 +6,7 @@ import { Bot, Copy, Cpu, History, PanelRightClose, Plus, Settings2, Trash2, X } 
 import { Button, Modal, Segmented, Switch, Tooltip } from "antd";
 import { motion } from "motion/react";
 
-import { modelMatchesCapability, modelOptionName, normalizeModelOptionValue, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { modelMatchesCapability, modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { nanoid } from "nanoid";
 import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ResponseToolCall } from "@/services/api/image";
@@ -42,7 +42,6 @@ const GENERATION_OPTION_PROPERTIES = {
     imageResolution: { type: "string" },
     count: { type: "number" },
     seconds: { type: "string" },
-    vquality: { type: "string" },
     generateAudio: { type: "string" },
     watermark: { type: "string" },
     audioVoice: { type: "string" },
@@ -739,22 +738,20 @@ function AgentTextModelPicker({ config, value, onChange }: { config: AiConfig; v
             <SelectTrigger
                 hideChevron
                 className="h-7 min-w-0 max-w-[220px] gap-1.5 border-0 bg-transparent px-1 py-0 text-xs font-normal shadow-none hover:bg-transparent hover:opacity-75 focus-visible:border-transparent focus-visible:ring-0 data-[state=open]:ring-0 dark:bg-transparent dark:hover:bg-transparent"
-                title={current ? `${modelOptionName(current)} · ${resolveModelChannel(config, current).name}` : "选择文本模型"}
+                title={current ? modelOptionLabel(config, current) : "选择文本模型"}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
             >
                 <AgentModelIcon model={current} />
-                <span className="min-w-0 truncate">{current ? modelOptionName(current) : "选择文本模型"}</span>
-                {current ? <span className="shrink-0 opacity-55">{resolveModelChannel(config, current).name}</span> : null}
+                <span className="min-w-0 truncate">{current ? modelOptionLabel(config, current) : "选择文本模型"}</span>
             </SelectTrigger>
             <SelectContent data-canvas-no-zoom className="z-[1200] w-72 max-w-[calc(100vw-24px)]" position="popper" align="start" side="bottom" sideOffset={6} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                 {options.length ? (
                     options.map((model) => (
-                        <SelectItem key={model} value={model} textValue={`${modelOptionName(model)} ${resolveModelChannel(config, model).name}`}>
+                        <SelectItem key={model} value={model} textValue={modelOptionLabel(config, model)}>
                             <span className="flex min-w-0 items-center gap-2">
                                 <AgentModelIcon model={model} />
-                                <span className="min-w-0 flex-1 truncate">{modelOptionName(model)}</span>
-                                <span className="shrink-0 text-xs opacity-55">{resolveModelChannel(config, model).name}</span>
+                                <span className="min-w-0 flex-1 truncate">{modelOptionLabel(config, model)}</span>
                             </span>
                         </SelectItem>
                     ))
@@ -1137,7 +1134,6 @@ function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: 
             imageResolution: stringOptional(input.imageResolution) || config.imageResolution,
             count: numberOptional(input.count) ?? generationCount(mode === "image" ? config.canvasImageCount || config.count : config.count),
             seconds: stringOptional(input.seconds) || config.videoSeconds,
-            vquality: stringOptional(input.vquality) || config.vquality,
             generateAudio: stringOptional(input.generateAudio) || config.videoGenerateAudio,
             watermark: stringOptional(input.watermark) || config.videoWatermark,
             audioVoice: stringOptional(input.audioVoice) || config.audioVoice,

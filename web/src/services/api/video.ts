@@ -3,7 +3,7 @@ import axios from "axios";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildSeedancePromptText, isArkPlanBaseUrl, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { boolConfig, buildSeedancePromptText, isArkPlanBaseUrl, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { normalizeVideoAspectRatio, normalizeVideoDuration } from "@/lib/video-model-capabilities";
 import { buildApiUrl, modelOptionName, proxyAntskUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
@@ -251,7 +251,6 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
         model: modelOptionName(model),
         content,
         ratio: normalizeVideoAspectRatio(config.size, model),
-        resolution: normalizeSeedanceResolution(config.vquality, modelOptionName(model)),
         duration: normalizeVideoDuration(config.videoSeconds, model),
         generate_audio: boolConfig(config.videoGenerateAudio, true),
         watermark: boolConfig(config.videoWatermark, false),

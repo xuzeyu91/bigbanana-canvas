@@ -32,7 +32,6 @@ export type AiConfig = {
     audioSpeed: string;
     audioInstructions: string;
     videoSeconds: string;
-    vquality: string;
     videoGenerateAudio: string;
     videoWatermark: string;
     systemPrompt: string;
@@ -66,7 +65,7 @@ const DEFAULT_IMAGE_MODEL_NAME = "gemini-3-pro-image-preview";
 const DEFAULT_IMAGE_MODEL_NAMES = [DEFAULT_IMAGE_MODEL_NAME, "gemini-3.1-flash-image-preview", "gpt-image-2", "gpt-image-1.5"];
 const DEFAULT_VIDEO_MODEL_NAMES = ["sora-2", "veo_3_1-fast", "viduq3-turbo", "viduq3-pro", "doubao-seedance-1-5-pro", "doubao-seedance-2-0-fast", "doubao-seedance-2-0", "happyhorse-1.0"];
 const DEFAULT_TEXT_MODEL_NAME = "gpt-5.4";
-const DEFAULT_TEXT_MODEL_NAMES = ["gpt-5.5", DEFAULT_TEXT_MODEL_NAME, "gpt-5.2", "gpt-5.1", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7", "gemini-3.1-pro-preview"];
+const DEFAULT_TEXT_MODEL_NAMES = ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", DEFAULT_TEXT_MODEL_NAME, "gpt-5.2", "gpt-5.1", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7", "gemini-3.1-pro-preview"];
 const DEFAULT_AUDIO_MODEL_NAME = "gpt-audio-1.5";
 const DEFAULT_AUDIO_MODEL_NAMES = [DEFAULT_AUDIO_MODEL_NAME, "gpt-audio-mini"];
 const LEGACY_IMAGE_DEFAULT_MODEL_NAMES = new Set(["gpt-image-2"]);
@@ -99,8 +98,7 @@ export const defaultConfig: AiConfig = {
     audioFormat: "mp3",
     audioSpeed: "1",
     audioInstructions: "",
-    videoSeconds: "6",
-    vquality: "720",
+    videoSeconds: "8",
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
@@ -266,8 +264,7 @@ export const useConfigStore = create<ConfigStore>()(
                         audioFormat: config.audioFormat || defaultConfig.audioFormat,
                         audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
                         audioInstructions: config.audioInstructions || "",
-                        videoSeconds: config.videoSeconds || "6",
-                        vquality: config.vquality || "720",
+                        videoSeconds: config.videoSeconds || "8",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         imageResolution: config.imageResolution || defaultConfig.imageResolution,
