@@ -36,7 +36,7 @@ type SeedanceTask = {
 };
 type ApiEnvelope<T> = T | { code?: number; data?: T | null; msg?: string; message?: string; success?: boolean };
 type RequestOptions = { signal?: AbortSignal };
-type OpenAIVideoTaskOptions = { useReferenceArray: boolean; maxReferences: number; supportedSeconds?: number[]; includeExtendedOptions: boolean };
+type OpenAIVideoTaskOptions = { useReferenceArray: boolean; maxReferences: number; supportedSeconds?: number[] };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance"; model: string };
@@ -62,7 +62,7 @@ function isViduGatewayModel(model: string) {
 }
 
 function isDoubaoOpenAiModel(model: string) {
-    return model.includes("doubao-seedance");
+    return model.includes("doubao-seedance") || model.includes("happyhorse") || model.includes("bigbanana");
 }
 
 function shouldUseSeedanceTaskApi(config: AiConfig, model: string) {
@@ -72,11 +72,11 @@ function shouldUseSeedanceTaskApi(config: AiConfig, model: string) {
 function resolveOpenAIVideoTaskOptions(model: string): OpenAIVideoTaskOptions {
     if (isDoubaoOpenAiModel(model)) {
         const isMultiReferenceModel = model.includes("2-0") || model.includes("happyhorse") || model.includes("bigbanana");
-        return { useReferenceArray: true, maxReferences: isMultiReferenceModel ? 4 : 2, supportedSeconds: isMultiReferenceModel ? [5, 10, 15] : undefined, includeExtendedOptions: false };
+        return { useReferenceArray: true, maxReferences: isMultiReferenceModel ? 4 : 2, supportedSeconds: isMultiReferenceModel ? [5, 10, 15] : undefined };
     }
-    if (model.includes("veo")) return { useReferenceArray: true, maxReferences: 2, supportedSeconds: [8], includeExtendedOptions: true };
-    if (model.includes("sora")) return { useReferenceArray: false, maxReferences: 1, supportedSeconds: [4, 8, 12], includeExtendedOptions: true };
-    return { useReferenceArray: false, maxReferences: 1, includeExtendedOptions: true };
+    if (model.includes("veo")) return { useReferenceArray: true, maxReferences: 2, supportedSeconds: [8] };
+    if (model.includes("sora")) return { useReferenceArray: false, maxReferences: 1, supportedSeconds: [4, 8, 12] };
+    return { useReferenceArray: false, maxReferences: 1 };
 }
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
@@ -129,10 +129,6 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     body.append("prompt", prompt);
     body.append("seconds", normalizeVideoSeconds(config.videoSeconds, taskOptions.supportedSeconds));
     if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-    if (taskOptions.includeExtendedOptions) {
-        body.append("resolution_name", normalizeVideoResolution(config.vquality));
-        body.append("preset", "normal");
-    }
     const files = await Promise.all(references.slice(0, taskOptions.maxReferences).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     if (taskOptions.useReferenceArray && files.length > 1) {
         files.forEach((file) => body.append("input_reference[]", file));
@@ -144,15 +140,18 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
         if (!created.id) throw new Error("视频接口没有返回任务 ID");
         return { id: created.id, provider: "openai", model };
     } catch (error) {
-        throw new Error(readAxiosError(error, "视频任务创建失败"));
+        throw new Error(await readAxiosError(error, "视频任务创建失败"));
     }
 }
 
 async function createViduGatewayTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const firstReference = references[0];
     if (!firstReference) throw new Error("Vidu Q3 模型需要至少一张参考图作为首帧");
-    const startImage = await imageToDataUrl(firstReference);
-    const endImage = references[1] ? await imageToDataUrl(references[1]) : "";
+    const targetSize = viduReferenceSize(config.size);
+    const [startImage, endImage] = await Promise.all([
+        imageToDataUrl(firstReference).then((image) => fitViduReference(image, targetSize)),
+        references[1] ? imageToDataUrl(references[1]).then((image) => fitViduReference(image, targetSize)) : Promise.resolve(""),
+    ]);
     const payload = {
         model: modelOptionName(model),
         prompt,
@@ -169,8 +168,35 @@ async function createViduGatewayTask(config: AiConfig, model: string, prompt: st
         if (!created.id) throw new Error("Vidu 接口没有返回任务 ID");
         return { id: created.id, provider: "openai", model };
     } catch (error) {
-        throw new Error(readAxiosError(error, "Vidu 任务创建失败"));
+        throw new Error(await readAxiosError(error, "Vidu 任务创建失败"));
     }
+}
+
+function viduReferenceSize(size: string) {
+    const [width, height] = (normalizeVideoSize(size) || "1280x720").split("x").map(Number);
+    return height > width ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
+}
+
+async function fitViduReference(dataUrl: string, target: { width: number; height: number }) {
+    if (!dataUrl.startsWith("data:")) return dataUrl;
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error("Vidu 参考图读取失败"));
+        element.src = dataUrl;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = target.width;
+    canvas.height = target.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Vidu 参考图处理失败");
+    const scale = Math.min(target.width / image.naturalWidth, target.height / image.naturalHeight);
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, target.width, target.height);
+    context.drawImage(image, (target.width - width) / 2, (target.height - height) / 2, width, height);
+    return canvas.toDataURL("image/png");
 }
 
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
@@ -185,10 +211,10 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
             await assertVideoBlob(content.data);
             return { status: "completed", result: { blob: content.data } };
         }
-        if (isVideoTaskFailed(video.status || video.state)) return { status: "failed", error: extractApiErrorMessage(video.error) || extractApiErrorMessage(video) || "视频生成失败" };
+        if (isVideoTaskFailed(video.status || video.state)) return { status: "failed", error: formatVideoError(extractApiErrorMessage(video.error) || extractApiErrorMessage(video) || "视频生成失败") };
         return { status: "pending" };
     } catch (error) {
-        throw new Error(readAxiosError(error, "视频任务查询失败"));
+        throw new Error(await readAxiosError(error, "视频任务查询失败"));
     }
 }
 
@@ -215,7 +241,7 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
         if (!created.id) throw new Error("Seedance 接口没有返回任务 ID");
         return { id: created.id, provider: "seedance", model };
     } catch (error) {
-        throw new Error(readAxiosError(error, "Seedance 任务创建失败"));
+        throw new Error(await readAxiosError(error, "Seedance 任务创建失败"));
     }
 }
 
@@ -227,10 +253,10 @@ async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, opt
             if (!url) return { status: "failed", error: "Seedance 任务成功但没有返回视频 URL" };
             return { status: "completed", result: await videoResultFromUrl(proxyAntskUrl(url), options) };
         }
-        if (state.status === "failed" || state.status === "cancelled" || state.status === "expired") return { status: "failed", error: state.error?.message || `Seedance 视频生成${state.status === "expired" ? "超时" : "失败"}` };
+        if (state.status === "failed" || state.status === "cancelled" || state.status === "expired") return { status: "failed", error: formatVideoError(extractApiErrorMessage(state.error) || `Seedance 视频生成${state.status === "expired" ? "超时" : "失败"}`) };
         return { status: "pending" };
     } catch (error) {
-        throw new Error(readAxiosError(error, "Seedance 任务查询失败"));
+        throw new Error(await readAxiosError(error, "Seedance 任务查询失败"));
     }
 }
 
@@ -345,13 +371,6 @@ function normalizeVideoSize(value: string) {
     );
 }
 
-function normalizeVideoResolution(value: string) {
-    if (value === "low") return "480p";
-    if (value === "auto" || value === "high" || value === "medium") return "720p";
-    const resolution = value.replace(/p$/i, "") || "720";
-    return `${resolution}p`;
-}
-
 function unwrapVideoResponse(payload: ApiVideoResponse) {
     return unwrapEnvelope(payload, "接口没有返回视频任务");
 }
@@ -377,13 +396,14 @@ function unwrapEnvelope<T>(payload: ApiEnvelope<T>, emptyMessage: string): T {
     return payload as T;
 }
 
-function readAxiosError(error: unknown, fallback: string) {
+async function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
     if (axios.isAxiosError(error)) {
-        return extractApiErrorMessage(error.response?.data) || statusMessage(error.response?.status, fallback);
+        const message = extractApiErrorMessage(await readErrorPayload(error.response?.data)) || statusMessage(error.response?.status, fallback);
+        return formatVideoError(message);
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
-    return error instanceof Error ? error.message : fallback;
+    return formatVideoError(error instanceof Error ? error.message : fallback);
 }
 
 function statusMessage(status: number | undefined, fallback: string) {
@@ -407,8 +427,31 @@ function extractApiErrorMessage(payload: unknown): string {
     if (typeof payload === "string") return payload.trim();
     if (!isRecord(payload)) return "";
     const error = payload.error;
-    const candidates = [payload.msg, payload.message, payload.error_msg, payload.detail, typeof error === "string" ? error : isRecord(error) ? error.message || error.code : ""];
+    const candidates = [payload.msg, payload.message, payload.error_msg, payload.detail, payload.reason, payload.error_description, typeof error === "string" ? error : isRecord(error) ? error.message || error.detail || error.reason || error.code : ""];
     return candidates.map((value) => (typeof value === "string" ? value.trim() : "")).find((value) => value && !["success", "ok"].includes(value.toLowerCase())) || "";
+}
+
+async function readErrorPayload(payload: unknown): Promise<unknown> {
+    if (payload instanceof Blob) return parseErrorPayload(await payload.text());
+    if (payload instanceof ArrayBuffer) return parseErrorPayload(new TextDecoder().decode(payload));
+    if (ArrayBuffer.isView(payload)) return parseErrorPayload(new TextDecoder().decode(payload));
+    return payload;
+}
+
+function parseErrorPayload(value: string) {
+    const text = value.trim();
+    if (!text) return "";
+    try {
+        return JSON.parse(text) as unknown;
+    } catch {
+        return text;
+    }
+}
+
+function formatVideoError(message: string) {
+    const detail = message.trim();
+    if (!detail || detail.startsWith("内容安全审核未通过：")) return detail;
+    return /blocked by (?:our )?moderation|moderation system|content[ _-]?(?:safety|policy|filter)|safety[ _-]?(?:policy|filter)|sensitive content|unsafe content|policy violation|内容安全|敏感(?:词|内容)?|违规|不安全/i.test(detail) ? `内容安全审核未通过：${detail}` : detail;
 }
 
 function isVideoTaskCompleted(status?: string) {
