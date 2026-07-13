@@ -42,6 +42,7 @@ export type AiConfig = {
     textModels: string[];
     audioModels: string[];
     quality: string;
+    imageResolution: string;
     size: string;
     count: string;
     canvasImageCount: string;
@@ -108,8 +109,9 @@ export const defaultConfig: AiConfig = {
     videoModels: DEFAULT_VIDEO_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
     textModels: DEFAULT_TEXT_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
     audioModels: DEFAULT_AUDIO_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
-    quality: "auto",
-    size: "1:1",
+    quality: "medium",
+    imageResolution: "1k",
+    size: "16:9",
     count: "1",
     canvasImageCount: "3",
 };
@@ -268,6 +270,7 @@ export const useConfigStore = create<ConfigStore>()(
                         vquality: config.vquality || "720",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
+                        imageResolution: config.imageResolution || defaultConfig.imageResolution,
                         canvasImageCount: config.canvasImageCount || "3",
                         imageModels,
                         videoModels,

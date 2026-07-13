@@ -51,6 +51,7 @@ export type CanvasNodeMetadata = {
     audioModel?: string;
     size?: string;
     quality?: string;
+    imageResolution?: string;
     count?: number;
     seconds?: string;
     vquality?: string;

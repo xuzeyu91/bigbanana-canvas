@@ -4,6 +4,7 @@ import { buildApiUrl, proxyAntskUrl, resolveModelRequestConfig, type AiConfig, t
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
+import { normalizeImageAspectRatio, normalizeImageQuality, normalizeImageResolution, resolveImageOutputSize, resolveImageRequestModel } from "@/lib/image-model-capabilities";
 import { imageToDataUrl } from "@/services/image-storage";
 import type { ReferenceImage } from "@/types/image";
 
@@ -132,10 +133,10 @@ const IMAGE_MAX_EDGE = 3840;
 const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
 
-function normalizeQuality(quality: string) {
+function normalizeQuality(quality: string, model: string) {
     const value = quality.trim().toLowerCase();
     const normalized = QUALITY_ALIASES[value] || value;
-    return QUALITY_BASE[normalized] ? normalized : undefined;
+    return normalizeImageQuality(normalized, model);
 }
 
 /** Map "quality + ratio" to an explicit pixel dimension like "3840x2160". */
@@ -173,12 +174,6 @@ function parseImageRatio(value: string) {
     return { width: w, height: h };
 }
 
-function parseImageDimensions(value: string) {
-    const match = value.match(/^(\d+)x(\d+)$/i);
-    if (!match) return null;
-    return { width: Number(match[1]), height: Number(match[2]) };
-}
-
 function validateImageSize(width: number, height: number) {
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) throw new Error("图像尺寸必须是正整数，例如 1024x1024");
     if (width % IMAGE_SIZE_STEP !== 0 || height % IMAGE_SIZE_STEP !== 0) throw new Error("图像尺寸的宽高必须是 16 的倍数，请调整尺寸");
@@ -188,16 +183,9 @@ function validateImageSize(width: number, height: number) {
     if (pixels < IMAGE_MIN_PIXELS || pixels > IMAGE_MAX_PIXELS) throw new Error("图像总像素需在 655360 到 8294400 之间，请调整尺寸");
 }
 
-function resolveRequestSize(quality: string | undefined, size: string) {
-    const value = size.trim();
-    if (!value || value.toLowerCase() === "auto") return undefined;
-    const dimensions = parseImageDimensions(value);
-    if (dimensions) {
-        validateImageSize(dimensions.width, dimensions.height);
-        return `${dimensions.width}x${dimensions.height}`;
-    }
-    if (value.includes(":")) return resolveSize(quality, value);
-    throw new Error("图像尺寸格式不支持，请使用 auto、9:16 或 1024x1024");
+function resolveRequestSize(model: string, resolution: string, quality: string | undefined, size: string) {
+    const ratio = normalizeImageAspectRatio(size, model, normalizeImageResolution(resolution, model));
+    return resolveImageOutputSize(model, normalizeImageResolution(resolution, model), ratio) || resolveSize(quality, ratio);
 }
 
 function resolveImageDataUrl(item: Record<string, unknown>) {
@@ -865,20 +853,23 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
+    const resolution = normalizeImageResolution(config.imageResolution, requestConfig.model);
+    const size = normalizeImageAspectRatio(config.size, requestConfig.model, resolution);
+    const effectiveConfig = { ...requestConfig, model: resolveImageRequestModel(requestConfig.model, resolution), size };
     if (requestConfig.apiFormat === "gemini") {
         try {
-            return await requestGeminiImages(requestConfig, prompt, [], n, options);
+            return await requestGeminiImages(effectiveConfig, prompt, [], n, options);
         } catch (error) {
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
-    const quality = normalizeQuality(config.quality);
-    const requestSize = resolveRequestSize(quality, config.size);
+    const quality = normalizeQuality(config.quality, requestConfig.model);
+    const requestSize = resolveRequestSize(requestConfig.model, resolution, quality, size);
     try {
         const response = await axios.post<ImageApiResponse>(
             aiApiUrl(requestConfig, "/images/generations"),
             {
-                model: requestConfig.model,
+                model: effectiveConfig.model,
                 prompt: withSystemPrompt(requestConfig, prompt),
                 n,
                 ...(quality ? { quality } : {}),
@@ -902,18 +893,21 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
+    const resolution = normalizeImageResolution(config.imageResolution, requestConfig.model);
+    const size = normalizeImageAspectRatio(config.size, requestConfig.model, resolution);
+    const effectiveConfig = { ...requestConfig, model: resolveImageRequestModel(requestConfig.model, resolution), size };
     if (requestConfig.apiFormat === "gemini") {
         if (mask) throw new Error("Gemini 调用格式暂不支持蒙版编辑");
         try {
-            return await requestGeminiImages(requestConfig, requestPrompt, references, n, options);
+            return await requestGeminiImages(effectiveConfig, requestPrompt, references, n, options);
         } catch (error) {
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
-    const quality = normalizeQuality(config.quality);
-    const requestSize = resolveRequestSize(quality, config.size);
+    const quality = normalizeQuality(config.quality, requestConfig.model);
+    const requestSize = resolveRequestSize(requestConfig.model, resolution, quality, size);
     const formData = new FormData();
-    formData.set("model", requestConfig.model);
+    formData.set("model", effectiveConfig.model);
     formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
     formData.set("n", String(n));
     formData.set("response_format", "b64_json");
