@@ -62,7 +62,7 @@ function isViduGatewayModel(model: string) {
 }
 
 function isDoubaoOpenAiModel(model: string) {
-    return model.includes("doubao-seedance") || model.includes("happyhorse") || model.includes("bigbanana");
+    return model.includes("doubao-seedance") || model.includes("happyhorse");
 }
 
 function shouldUseSeedanceTaskApi(config: AiConfig, model: string) {
@@ -71,7 +71,7 @@ function shouldUseSeedanceTaskApi(config: AiConfig, model: string) {
 
 function resolveOpenAIVideoTaskOptions(model: string): OpenAIVideoTaskOptions {
     if (isDoubaoOpenAiModel(model)) {
-        const isMultiReferenceModel = model.includes("2-0") || model.includes("happyhorse") || model.includes("bigbanana");
+        const isMultiReferenceModel = model.includes("2-0") || model.includes("happyhorse");
         return { useReferenceArray: true, maxReferences: isMultiReferenceModel ? 4 : 2, supportedSeconds: isMultiReferenceModel ? [5, 10, 15] : undefined };
     }
     if (model.includes("veo")) return { useReferenceArray: true, maxReferences: 2, supportedSeconds: [8] };
@@ -129,8 +129,20 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     body.append("prompt", prompt);
     body.append("seconds", normalizeVideoSeconds(config.videoSeconds, taskOptions.supportedSeconds));
     if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-    const files = await Promise.all(references.slice(0, taskOptions.maxReferences).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    if (taskOptions.useReferenceArray && files.length > 1) {
+    const targetSize = videoReferenceSize(config.size);
+    const selectedReferences = references.slice(0, taskOptions.maxReferences);
+    const useReferenceArray = taskOptions.useReferenceArray && selectedReferences.length > 1;
+    const files = await Promise.all(
+        selectedReferences.map(async (image, index) =>
+            dataUrlToFile({
+                ...image,
+                name: useReferenceArray ? `reference-${index + 1}.png` : "reference.png",
+                type: "image/png",
+                dataUrl: await imageToDataUrl(image).then((dataUrl) => fitVideoReference(dataUrl, targetSize)),
+            }),
+        ),
+    );
+    if (useReferenceArray) {
         files.forEach((file) => body.append("input_reference[]", file));
     } else if (files[0]) {
         body.append("input_reference", files[0]);
@@ -149,8 +161,8 @@ async function createViduGatewayTask(config: AiConfig, model: string, prompt: st
     if (!firstReference) throw new Error("Vidu Q3 模型需要至少一张参考图作为首帧");
     const targetSize = viduReferenceSize(config.size);
     const [startImage, endImage] = await Promise.all([
-        imageToDataUrl(firstReference).then((image) => fitViduReference(image, targetSize)),
-        references[1] ? imageToDataUrl(references[1]).then((image) => fitViduReference(image, targetSize)) : Promise.resolve(""),
+        imageToDataUrl(firstReference).then((image) => fitVideoReference(image, targetSize)),
+        references[1] ? imageToDataUrl(references[1]).then((image) => fitVideoReference(image, targetSize)) : Promise.resolve(""),
     ]);
     const payload = {
         model: modelOptionName(model),
@@ -177,7 +189,12 @@ function viduReferenceSize(size: string) {
     return height > width ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
 }
 
-async function fitViduReference(dataUrl: string, target: { width: number; height: number }) {
+function videoReferenceSize(size: string) {
+    const [width, height] = (normalizeVideoSize(size) || "1280x720").split("x").map(Number);
+    return { width, height };
+}
+
+async function fitVideoReference(dataUrl: string, target: { width: number; height: number }) {
     if (!dataUrl.startsWith("data:")) return dataUrl;
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
         const element = new Image();
@@ -190,9 +207,11 @@ async function fitViduReference(dataUrl: string, target: { width: number; height
     canvas.height = target.height;
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Vidu 参考图处理失败");
-    const scale = Math.min(target.width / image.naturalWidth, target.height / image.naturalHeight);
-    const width = image.naturalWidth * scale;
-    const height = image.naturalHeight * scale;
+    const sourceWidth = image.naturalWidth || target.width;
+    const sourceHeight = image.naturalHeight || target.height;
+    const scale = Math.min(target.width / sourceWidth, target.height / sourceHeight);
+    const width = sourceWidth * scale;
+    const height = sourceHeight * scale;
     context.fillStyle = "#fff";
     context.fillRect(0, 0, target.width, target.height);
     context.drawImage(image, (target.width - width) / 2, (target.height - height) / 2, width, height);
