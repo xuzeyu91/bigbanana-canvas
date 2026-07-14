@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { App, Button, Input, Segmented, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
 import { Copy, FolderOpen, History, KeyRound, Link2, LoaderCircle, PlugZap, Plus, RefreshCw, RotateCcw, Terminal, Trash2 } from "lucide-react";
@@ -54,6 +54,8 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
     const errorLoggedRef = useRef(false);
     const attachmentUrlsRef = useRef(new Set<string>());
     const clientIdRef = useRef(typeof crypto === "undefined" ? `${Date.now()}` : crypto.randomUUID());
+    const streamEventRef = useRef<AgentEventPayload | null>(null);
+    const streamEventTimerRef = useRef<number | null>(null);
     const endpoint = useMemo(() => url.trim().replace(/\/$/, ""), [url]);
     const loadThreads = useCallback(async () => {
         const projectId = snapshotRef.current.projectId;
@@ -95,6 +97,9 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
     }, [messages, pendingTool, waiting]);
     useEffect(() => () => attachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url)), []);
+    useEffect(() => () => {
+        if (streamEventTimerRef.current !== null) window.clearTimeout(streamEventTimerRef.current);
+    }, []);
 
     useEffect(() => {
         if (!enabled || !token.trim()) return;
@@ -444,7 +449,7 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
         pushEventLog({ id: `${Date.now()}-${Math.random()}`, time: new Date().toLocaleTimeString(), title, text: normalizeText(text) || title, raw });
     };
 
-    const handleAgentEvent = (event: AgentEventPayload) => {
+    const processAgentEvent = (event: AgentEventPayload) => {
         if (shouldLogAgentEvent(event)) addEventLog(eventTitle(event), event, event);
         if (event.type === "thread.started" && event.thread_id) setAgentState({ activeThreadId: event.thread_id });
         const nextActivity = activityText(event);
@@ -456,6 +461,28 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
             if (item.role === "error") setAgentState({ waiting: false, sending: false });
             addMessage(item);
         }
+    };
+
+    const flushStreamEvent = (deferred = true) => {
+        if (streamEventTimerRef.current !== null) window.clearTimeout(streamEventTimerRef.current);
+        streamEventTimerRef.current = null;
+        const event = streamEventRef.current;
+        streamEventRef.current = null;
+        if (!event) return;
+        if (deferred) startTransition(() => processAgentEvent(event));
+        else processAgentEvent(event);
+    };
+
+    const handleAgentEvent = (event: AgentEventPayload) => {
+        if (event.type === "item.updated" && event.item?.type === "agent_message") {
+            streamEventRef.current = event;
+            if (streamEventTimerRef.current === null) {
+                streamEventTimerRef.current = window.setTimeout(flushStreamEvent, 33);
+            }
+            return;
+        }
+        flushStreamEvent(false);
+        processAgentEvent(event);
     };
 
     const content = (
