@@ -41,6 +41,7 @@ import { CanvasNode } from "../components/canvas-node";
 import { CanvasNodePromptPanel, type CanvasNodeGenerationMode } from "../components/canvas-node-prompt-panel";
 import { CanvasProductionPanel } from "../components/canvas-production-panel";
 import { CanvasToolbar } from "../components/canvas-toolbar";
+import { exportCanvasNodes } from "../utils/canvas-export";
 import { AssetPickerModal, type InsertAssetPayload } from "../components/asset-picker-modal";
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import { useCanvasStore } from "../stores/use-canvas-store";
@@ -1646,6 +1647,20 @@ function InfiniteCanvasPage() {
         saveAs(node.metadata.content, `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Video ? "mp4" : node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`);
     }, []);
 
+    const exportSelectedNodes = useCallback(async () => {
+        const selectedNodes = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
+        if (!selectedNodes.length) return;
+        const hide = message.loading("正在导出选中元素…", 0);
+        try {
+            await exportCanvasNodes(selectedNodes, `画布元素-${selectedNodes.length}个`);
+            message.success(`已导出 ${selectedNodes.length} 个元素`);
+        } catch {
+            message.error("导出失败，请重试");
+        } finally {
+            hide();
+        }
+    }, [message]);
+
     const saveNodeAsset = useCallback(
         async (node: CanvasNodeData) => {
             if (node.type === CanvasNodeType.Text) {
@@ -1983,6 +1998,7 @@ function InfiniteCanvasPage() {
                                       model: undefined,
                                       size: undefined,
                                       quality: undefined,
+                                      imageBackground: undefined,
                                       count: undefined,
                                       references: undefined,
                                       primaryImageId: undefined,
@@ -2462,6 +2478,8 @@ function InfiniteCanvasPage() {
                           ...effectiveConfig,
                           model: savedImageMetadata.model || effectiveConfig.imageModel || effectiveConfig.model,
                           quality: savedImageMetadata.quality || effectiveConfig.quality,
+                          imageResolution: savedImageMetadata.imageResolution || effectiveConfig.imageResolution,
+                          imageBackground: savedImageMetadata.imageBackground || effectiveConfig.imageBackground,
                           size: savedImageMetadata.size || effectiveConfig.size,
                           count: "1",
                       }
@@ -2543,7 +2561,7 @@ function InfiniteCanvasPage() {
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                 const imageSize = fitNodeSize(uploadedImage.width, uploadedImage.height, imageConfig.width, imageConfig.height);
                 const generationMetadata = savedImageMetadata?.generationType
-                    ? { generationType: savedImageMetadata.generationType, model: generationConfig.model, size: generationConfig.size, quality: generationConfig.quality, imageResolution: generationConfig.imageResolution, count: savedImageMetadata.count || 1, references: savedImageMetadata.references }
+                    ? { generationType: savedImageMetadata.generationType, model: generationConfig.model, size: generationConfig.size, quality: generationConfig.quality, imageResolution: generationConfig.imageResolution, imageBackground: generationConfig.imageBackground, count: savedImageMetadata.count || 1, references: savedImageMetadata.references }
                     : buildImageGenerationMetadata(useReferenceImages ? "edit" : "generation", generationConfig, 1, retryImages);
                 setNodes((prev) =>
                     prev.map((item) =>
@@ -2929,6 +2947,7 @@ function InfiniteCanvasPage() {
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                     onUpload={() => handleUploadRequest()}
+                    onExportSelected={() => void exportSelectedNodes()}
                     onDelete={() => deleteNodes(new Set(selectedNodeIds))}
                     onClear={() => setClearConfirmOpen(true)}
                     onDeselect={deselectCanvas}
@@ -3272,6 +3291,7 @@ function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: A
         size: config.size,
         quality: config.quality,
         imageResolution: config.imageResolution,
+        imageBackground: config.imageBackground,
         count,
         references: references.map(referenceUrl).filter((url): url is string => Boolean(url)),
     };
@@ -3475,6 +3495,7 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         model: resolveNodeModelByMode(node?.metadata, mode) || defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model),
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         imageResolution: node?.metadata?.imageResolution || config.imageResolution || defaultConfig.imageResolution,
+        imageBackground: node?.metadata?.imageBackground || config.imageBackground || defaultConfig.imageBackground,
         size: node?.metadata?.size || config.size || defaultConfig.size,
         videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,

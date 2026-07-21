@@ -42,6 +42,7 @@ export type AiConfig = {
     audioModels: string[];
     quality: string;
     imageResolution: string;
+    imageBackground: string;
     size: string;
     count: string;
     canvasImageCount: string;
@@ -110,6 +111,7 @@ export const defaultConfig: AiConfig = {
     audioModels: DEFAULT_AUDIO_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
     quality: "medium",
     imageResolution: "1k",
+    imageBackground: "",
     size: "16:9",
     count: "1",
     canvasImageCount: "3",
