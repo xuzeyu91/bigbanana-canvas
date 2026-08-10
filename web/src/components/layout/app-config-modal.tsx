@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { AccountCenterPanel } from "@/components/layout/account-center-panel";
+import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
@@ -409,6 +410,11 @@ export function AppConfigModal() {
                                 </section>
                             </Form>
                         ),
+                    },
+                    {
+                        key: "local-storage",
+                        label: "本地存储",
+                        children: <ConfigLocalStorage active={activeTab === "local-storage"} />,
                     },
                 ]}
             />

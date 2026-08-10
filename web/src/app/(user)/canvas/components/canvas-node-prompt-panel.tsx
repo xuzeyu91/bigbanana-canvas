@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowUp, LoaderCircle, Sparkles, Square } from "lucide-react";
-import { App, Button } from "antd";
+import { ArrowUp, Expand, LoaderCircle, Sparkles, Square } from "lucide-react";
+import { App, Button, Modal } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -42,17 +42,19 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
-    const [prompt, setPrompt] = useState(isEditingExistingContent ? "" : node.metadata?.prompt || "");
+    const [prompt, setPrompt] = useState(() => initialPromptForNode(node));
     const [optimizing, setOptimizing] = useState(false);
+    const [editorOpen, setEditorOpen] = useState(false);
     const credits = requestCreditCost({ channelMode: config.channelMode, model: config.model, count: mode === "image" ? config.count : 1 });
 
     useEffect(() => {
-        setPrompt(isEditingExistingContent ? "" : node.metadata?.prompt || "");
-    }, [isEditingExistingContent, node.id]);
+        setPrompt(initialPromptForNode(node));
+        setEditorOpen(false);
+    }, [node.id]);
 
     const updatePrompt = (value: string) => {
         setPrompt(value);
-        if (!isEditingExistingContent) onPromptChange(node.id, value);
+        onPromptChange(node.id, value);
     };
 
     const submit = () => {
@@ -120,6 +122,14 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
             <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
+                    <Button
+                        type="text"
+                        className="!h-9 !shrink-0 !px-2"
+                        icon={<Expand className="size-4" />}
+                        onClick={() => setEditorOpen(true)}
+                        aria-label="展开编辑提示词"
+                        title="展开编辑提示词"
+                    />
                     <CanvasPromptLibrary onSelect={updatePrompt} />
                     <Button
                         className="!h-10 !shrink-0 !rounded-full !px-3"
@@ -183,8 +193,37 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     </span>
                 </Button>
             </div>
+            <Modal
+                title="提示词编辑"
+                open={editorOpen}
+                centered
+                width={760}
+                destroyOnHidden
+                footer={null}
+                onCancel={() => setEditorOpen(false)}
+                styles={{ body: { padding: 0 } }}
+            >
+                <div className="space-y-3">
+                    <p className="text-xs text-stone-500">支持使用 @ 引用画布节点；编辑内容会实时保存到当前节点。</p>
+                    <CanvasResourceMentionTextarea
+                        value={prompt}
+                        references={mentionReferences}
+                        onChange={updatePrompt}
+                        className="thin-scrollbar min-h-[360px] w-full resize-none rounded-xl border px-4 py-3 text-sm leading-6 outline-none"
+                        containerClassName="min-h-[360px]"
+                        style={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text }}
+                        placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
+                    />
+                </div>
+            </Modal>
         </div>
     );
+}
+
+function initialPromptForNode(node: CanvasNodeData) {
+    if (typeof node.metadata?.composerContent === "string") return node.metadata.composerContent;
+    const hasExistingContent = (node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim())) || (node.type === CanvasNodeType.Image && Boolean(node.metadata?.content));
+    return hasExistingContent ? "" : node.metadata?.prompt || "";
 }
 
 function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
