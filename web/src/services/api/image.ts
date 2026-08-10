@@ -139,6 +139,10 @@ function normalizeQuality(quality: string, model: string) {
     return normalizeImageQuality(normalized, model);
 }
 
+function normalizeImageBackground(value: string | undefined) {
+    return value?.trim().toLowerCase() === "transparent" ? "transparent" : undefined;
+}
+
 /** Map "quality + ratio" to an explicit pixel dimension like "3840x2160". */
 function resolveSize(quality: string | undefined, ratio: string): string {
     const parsedRatio = parseImageRatio(ratio);
@@ -865,6 +869,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     }
     const quality = normalizeQuality(config.quality, requestConfig.model);
     const requestSize = resolveRequestSize(requestConfig.model, resolution, quality, size);
+    const background = normalizeImageBackground(config.imageBackground);
     try {
         const response = await axios.post<ImageApiResponse>(
             aiApiUrl(requestConfig, "/images/generations"),
@@ -874,6 +879,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 n,
                 ...(quality ? { quality } : {}),
                 ...(requestSize ? { size: requestSize } : {}),
+                ...(background ? { background } : {}),
                 response_format: "b64_json",
                 output_format: IMAGE_OUTPUT_FORMAT,
             },
@@ -906,6 +912,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     }
     const quality = normalizeQuality(config.quality, requestConfig.model);
     const requestSize = resolveRequestSize(requestConfig.model, resolution, quality, size);
+    const background = normalizeImageBackground(config.imageBackground);
     const formData = new FormData();
     formData.set("model", effectiveConfig.model);
     formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
@@ -917,6 +924,9 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     }
     if (requestSize) {
         formData.set("size", requestSize);
+    }
+    if (background) {
+        formData.set("background", background);
     }
     const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => formData.append("image", file));

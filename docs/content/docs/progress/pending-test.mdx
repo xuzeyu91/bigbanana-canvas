@@ -13,6 +13,9 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 - 画布图片可拖动切图：切图对话框默认保持固定网格能力；拖动横向/纵向分割线、添加、删除和重置分割线后，预览和子节点数量应同步更新，确认后按行优先顺序生成现有图片子节点。请验证角色表、分镜表等非等分切片，以及现有 batch root / child 数据结构和制作元数据不受影响。
 
+- 上游 0.9 功能增量：图片生成设置新增“透明背景”开关。请用支持该参数的图片模型分别验证文生图与参考图编辑：开启后 `/v1/images/generations` JSON 请求和 `/v1/images/edits` multipart 请求均应传递 `background=transparent`；关闭后不应传递该字段。设置需保存在当前节点，生成结果重试时也应沿用。模型请求仍应经同源 `/api/new-api/gateway` 转发。
+- 上游 0.9 功能增量：画布多选一个或多个元素后，底部工具栏会出现“导出选中元素”。请验证图片、视频、音频、本地文本和未生成的配置节点混选时能下载 ZIP：本地媒体应导出为原始文件，文本为 `.txt`，无独立媒体内容的节点为 `.json`；同名元素应自动避免文件名冲突。
+
 - 画布图片模型分辨率约束：图片设置新增独立的 1K/2K/4K 分辨率选项，比例与输出尺寸会随模型和分辨率动态收窄。请验证 Gemini 3 Pro、Gemini 3.1 Flash 在 2K/4K 时请求对应的 `-2k`/`-4k` 模型变体且只提供横竖屏；GPT Image 2 的 2K 仅提供横屏/方形并分别提交 `2048×1152`/`2048×2048`，4K 仅提供横竖屏并分别提交 `3840×2160`/`2160×3840`；GPT Image 1.5 仅保留 1K 的横竖屏/方形尺寸。也请验证生成、参考图编辑、重试与 Agent 新建图片节点都会保留分辨率设置。
 
 - 画布视频模型能力约束：视频设置现仅按所选模型展示支持的比例和时长，不再提供 480p、720p 等分辨率设置，也不再向视频接口提交用户选择的分辨率参数；后端要求固定分辨率的模型仍由对应请求适配器按其固定值处理。请验证 Sora-2（16:9/9:16/1:1、4/8/12 秒）、Veo 3.1 Fast（横竖屏、8 秒）、Doubao Seedance 1.5 Pro（横竖屏、4/8/12 秒）、Doubao Seedance 2.0 Fast/2.0 与 HappyHorse 1.0（横竖屏、5/10/15 秒）、Vidu Q3 Turbo/Pro（横竖屏、16 秒）的可选项与提交参数；同时确认默认渠道的模型名称不再附带“（BigBanana API）”。
@@ -42,7 +45,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 工作台入口调整：顶部导航和移动端导航中的“生图工作台”“视频创作台”改为外链，分别跳转到 `https://bigbanana.tree456.com/gemini-image.html` 与 `https://bigbanana.tree456.com/ai-video-content.html`；新增“漫剧工作流平台”入口，跳转到 `https://director.tree456.com/`；站内 `/image`、`/video` 页面已移除。
 - 配置与用户偏好：渠道 Base URL 固定为 `/api/new-api/gateway` 且不可编辑，模型请求会由同源 Next.js 代理转发到 `https://api.antsk.cn`；默认文本模型更新为 `gpt-5.4`、默认音频模型更新为 `gpt-audio-1.5`，图片模型新增 `gemini-3-pro-image-preview`，视频模型默认可选项更新为 `sora-2`、`veo_3_1-fast`、`viduq3-turbo`、`viduq3-pro`、`doubao-seedance-1-5-pro`、`doubao-seedance-2-0-fast`、`doubao-seedance-2-0`。
 - new-api 模型代理：前端模型请求不再直连 `https://api.antsk.cn`；`/api/new-api/gateway` 会原样转发 `/v1/chat/completions`、`/v1/responses`、`/v1/images/*`、`/v1/videos*`、`/v1beta/*` 等模型接口，支持 SSE stream、multipart 上传和视频/音频/图片二进制响应。
-- 配置与用户偏好（模型配置简化）：渠道页移除“拉取全部”按钮和左侧提示说明，模型列表改为手动维护；默认模型列表参考 `BigBanana-AI-Director` 补齐，文本模型新增 `gpt-5.6-terra`、`gpt-5.6-sol`、`gpt-5.5`、`gpt-5.2`、`gpt-5.1`、`claude-sonnet-4-6`、`claude-opus-4-6`、`claude-opus-4-7`、`gemini-3.1-pro-preview`，图片模型新增 `gemini-3.1-flash-image-preview`、`gpt-image-1.5`，视频模型新增 `happyhorse-1.0`，音频模型新增 `gpt-audio-mini`；“模型”页四类可选项和默认模型选择增加能力约束，禁止把文本模型选到生图/视频等不匹配分组。
+- 配置与用户偏好（模型配置简化）：渠道页移除“拉取全部”按钮和左侧提示说明，模型列表改为手动维护；默认模型列表参考 `BigBanana-AI-Director` 补齐，文本模型顺序调整为 `gpt-5.6-terra`、`gpt-5.6-sol`、`gpt-5.4`、`gpt-5.5`、`claude-sonnet-4-6`、`claude-opus-4-6`、`claude-opus-4-7`、`gemini-3.1-pro-preview`，并移除 `gpt-5.1`、`gpt-5.2`（已有本地配置也会同步移除）；图片模型新增 `gemini-3.1-flash-image-preview`、`gpt-image-1.5`，视频模型新增 `happyhorse-1.0`，音频模型新增 `gpt-audio-mini`；“模型”页四类可选项和默认模型选择增加能力约束，禁止把文本模型选到生图/视频等不匹配分组。
+- 本地 Canvas Agent 流式回复：参考 `psacowork` 的流式增量批处理方式，将高频 Codex 文本更新合并为约每 33ms 一次的低优先级界面更新；长回复时保持流式展示，同时降低 Zustand/React 的重渲染压力。
 - 对话 Agent 文本模型过滤修复：补充 `happyhorse-1.0` 的视频能力识别，画布右侧 Agent 的文本模型下拉不再展示图片/视频模型（例如 `gemini-3.1-flash-image-preview`），默认渠道的模型名称不再展示“BigBanana API”；若历史配置里误存了非文本模型，初始化时会自动回退到可用文本模型。
 - Gemini 调用格式：支持拉取 Gemini 模型列表，并用于文本问答、在线 Agent 工具调用、基础生图和图生图请求。
 - 音频和视频生成：选择 Gemini 调用格式时先给出不支持提示，仍需使用 OpenAI 兼容渠道。

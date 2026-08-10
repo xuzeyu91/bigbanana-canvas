@@ -31,6 +31,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     const model = config.model || config.imageModel;
     const resolution = normalizeImageResolution(config.imageResolution, model);
     const quality = imageQualityLabel(config.quality, model);
+    const transparentBackground = config.imageBackground === "transparent";
     const count = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
     const updateOpen = (nextOpen: boolean) => {
@@ -68,7 +69,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[180px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => updateOpen(!open)}>
                     <span className="truncate">
-                        {imageResolutionLabel(resolution, model)} · {imageSizeLabel(activeSize, model, resolution)}{imageModelSupportsQuality(model) ? ` · ${quality}` : ""} · {count} 张
+                        {imageResolutionLabel(resolution, model)} · {imageSizeLabel(activeSize, model, resolution)}{imageModelSupportsQuality(model) ? ` · ${quality}` : ""}{transparentBackground ? " · 透明" : ""} · {count} 张
                     </span>
                 </Button>
             </span>
