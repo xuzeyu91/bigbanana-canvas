@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { AGENT_PROMPT, VERSION } from "./config.js";
+import { createAgentLogWriter } from "./agent-runtime.js";
 import type { AgentAttachment, AgentEmit } from "./types.js";
 
 type Json = Record<string, unknown>;
@@ -128,9 +129,14 @@ class CodexAppClient {
         const child = spawn(process.execPath, [codexBin(), "app-server", "--stdio"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
         const client = new CodexAppClient(child, emit);
         child.stdout?.on("data", (chunk) => client.read(chunk.toString()));
-        child.stderr?.on("data", (chunk) => emit("agent_log", { text: chunk.toString() }));
-        child.on("error", (error) => emit("agent_error", { message: error.message }));
+        const stderr = createAgentLogWriter((text) => emit("agent_log", { text }));
+        child.stderr?.on("data", (chunk) => stderr.write(chunk.toString()));
+        child.on("error", (error) => {
+            stderr.flush();
+            emit("agent_error", { message: error.message });
+        });
         child.on("exit", (code) => {
+            stderr.flush();
             client.failAll(`Codex app-server exited: ${code ?? 0}`);
             codexApp = null;
             codexThreadId = "";
@@ -460,6 +466,7 @@ function codexBin() {
 
 function pipeJsonLines(child: ReturnType<typeof spawn>, emit: AgentEmit, agent: string) {
     let out = "";
+    const stderr = createAgentLogWriter((text) => emit("agent_log", { text }));
     child.stdout?.on("data", (chunk) => {
         out += chunk.toString();
         const lines = out.split(/\r?\n/);
@@ -472,9 +479,15 @@ function pipeJsonLines(child: ReturnType<typeof spawn>, emit: AgentEmit, agent: 
             }
         });
     });
-    child.stderr?.on("data", (chunk) => emit("agent_log", { text: chunk.toString() }));
-    child.on("error", (error) => emit("agent_error", { message: error.message }));
-    child.on("close", (code) => emit("agent_done", { agent, code }));
+    child.stderr?.on("data", (chunk) => stderr.write(chunk.toString()));
+    child.on("error", (error) => {
+        stderr.flush();
+        emit("agent_error", { message: error.message });
+    });
+    child.on("close", (code) => {
+        stderr.flush();
+        emit("agent_done", { agent, code });
+    });
 }
 
 function spawnAgent(name: string, args: string[], stdio: StdioOptions, emit: AgentEmit) {
