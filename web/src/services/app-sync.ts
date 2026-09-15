@@ -269,17 +269,19 @@ function mergeById<T extends { id?: string }>(local: T[], remote: T[], timeKey: 
 }
 
 function mergeCanvasData(local: CanvasDomainData, remote: CanvasDomainData): CanvasDomainData {
-    const deletedAtById = new Map<string, string>();
+    const deletedAtById = new Map<string, { deletedAt: string; time: number }>();
     for (const item of [...(remote.deleted || []), ...(local.deleted || [])]) {
         if (!item.id || !item.deletedAt) continue;
+        const time = Date.parse(item.deletedAt);
+        if (!Number.isFinite(time)) continue;
         const current = deletedAtById.get(item.id);
-        if (!current || item.deletedAt >= current) deletedAtById.set(item.id, item.deletedAt);
+        if (!current || time >= current.time) deletedAtById.set(item.id, { deletedAt: item.deletedAt, time });
     }
 
     const projects = mergeById(local.projects || [], remote.projects || [], "updatedAt").filter((project) => {
-        const deletedAt = deletedAtById.get(project.id);
-        if (!deletedAt) return true;
-        if (getTime(project as Record<string, unknown>, "updatedAt") > Date.parse(deletedAt)) {
+        const deleted = deletedAtById.get(project.id);
+        if (!deleted) return true;
+        if (getTime(project as Record<string, unknown>, "updatedAt") > deleted.time) {
             deletedAtById.delete(project.id);
             return true;
         }
@@ -288,7 +290,7 @@ function mergeCanvasData(local: CanvasDomainData, remote: CanvasDomainData): Can
 
     return {
         projects,
-        deleted: [...deletedAtById.entries()].map(([id, deletedAt]) => ({ id, deletedAt })),
+        deleted: [...deletedAtById.entries()].map(([id, deleted]) => ({ id, deletedAt: deleted.deletedAt })),
     };
 }
 

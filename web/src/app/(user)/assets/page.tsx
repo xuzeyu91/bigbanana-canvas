@@ -152,13 +152,13 @@ export default function AssetsPage() {
     const downloadImage = async (asset: Asset) => {
         if (asset.kind !== "image" && asset.kind !== "video") return;
         try {
-            const blob = await readAssetMediaBlob(asset);
-            if (!blob) {
+            const source = await readAssetMediaSource(asset);
+            if (!source) {
                 message.error("素材下载失败");
                 return;
             }
             const extension = asset.data.mimeType?.split("/")[1]?.split("+")[0] || (asset.kind === "video" ? "mp4" : "png");
-            saveAs(blob, `${asset.title || "asset"}.${extension}`);
+            saveAs(source, `${asset.title || "asset"}.${extension}`);
         } catch {
             message.error("素材下载失败");
         }
@@ -415,7 +415,7 @@ export default function AssetsPage() {
     );
 }
 
-async function readAssetMediaBlob(asset: Extract<Asset, { kind: "image" | "video" }>) {
+async function readAssetMediaSource(asset: Extract<Asset, { kind: "image" | "video" }>) {
     const storageKey = asset.data.storageKey;
     if (storageKey) {
         const stored = asset.kind === "image" ? await getImageBlob(storageKey) : await getMediaBlob(storageKey);
@@ -423,8 +423,13 @@ async function readAssetMediaBlob(asset: Extract<Asset, { kind: "image" | "video
     }
     const url = asset.kind === "video" ? asset.data.url : asset.data.dataUrl || asset.coverUrl;
     if (!url) return null;
-    const response = await fetch(url);
-    return response.ok ? response.blob() : null;
+    try {
+        const response = await fetch(url);
+        if (response.ok) return await response.blob();
+    } catch {
+        // Cross-origin URLs may still be downloadable directly even when fetch is blocked.
+    }
+    return url;
 }
 
 function AssetCard({ asset, onOpen, onEdit, onCopy, onDownload, onDelete }: { asset: Asset; onOpen: () => void; onEdit: () => void; onCopy: (asset: Asset) => void; onDownload: (asset: Asset) => void; onDelete: () => void }) {
