@@ -1,0 +1,45 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - link "BigBanana Canvas Logo BigBanana Canvas" [ref=e7] [cursor=pointer]:
+          - /url: /
+          - img "BigBanana Canvas Logo" [ref=e8]
+          - generic [ref=e9]: BigBanana Canvas
+        - navigation [ref=e10]:
+          - link "我的画布" [ref=e11] [cursor=pointer]:
+            - /url: /canvas
+          - link "生图工作台" [ref=e18] [cursor=pointer]:
+            - /url: https://bigbanana.tree456.com/gemini-image.html
+          - link "视频创作台" [ref=e24] [cursor=pointer]:
+            - /url: https://bigbanana.tree456.com/ai-video-content.html
+          - link "漫剧工作流平台" [ref=e29] [cursor=pointer]:
+            - /url: https://director.tree456.com/
+          - link "提示词库" [ref=e36] [cursor=pointer]:
+            - /url: /prompts
+          - link "我的素材" [ref=e41] [cursor=pointer]:
+            - /url: /assets
+      - generic [ref=e49]:
+        - button "配置" [ref=e50]
+        - button "切换到浅色主题" [ref=e54]
+  - main [ref=e59]:
+    - generic [ref=e60]:
+      - generic [ref=e61]:
+        - generic [ref=e62] [cursor=pointer]: BigBanana Canvas BigBanana Canvas BigBanana Canvas
+        - paragraph [ref=e63]:
+          - text: 在
+          - generic [ref=e64] [cursor=pointer]: BigBanana Canvas
+          - text: 中生成、连接和重组
+          - generic [ref=e65] [cursor=pointer]: 图片、文字与图形
+          - text: ，让创作从单次生成变成连续推演。
+        - generic [ref=e66]:
+          - link "开始使用" [ref=e67] [cursor=pointer]:
+            - /url: /canvas
+          - link "打开画布" [ref=e72] [cursor=pointer]:
+            - /url: /canvas
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - heading "沉淀每一次好结果" [level=2] [ref=e77]
+          - paragraph [ref=e78]: 收藏稳定出图的提示词、参考风格和结果图片，让下一次创作从已有经验开始。
+        - link "查看提示词库" [ref=e79] [cursor=pointer]:
+          - /url: /prompts

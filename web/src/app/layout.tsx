@@ -95,15 +95,10 @@ export default function RootLayout({
                         __html: `try{var s=JSON.parse(localStorage.getItem("infinite-canvas:theme_store")||"{}");var t=s.state&&s.state.theme==="light"?"light":"dark";document.documentElement.classList.toggle("dark",t==="dark");document.documentElement.style.colorScheme=t}catch(e){}`,
                     }}
                 />
-                <Script
-                    id="baidu-hm-init"
-                    strategy="beforeInteractive"
-                    dangerouslySetInnerHTML={{ __html: "window._hmt = window._hmt || [];" }}
-                />
-                <Script
-                    id="baidu-hm-src"
-                    src="https://hm.baidu.com/hm.js?a279a450048889338ec3afdd144535c6"
-                    strategy="beforeInteractive"
+                <script
+                    dangerouslySetInnerHTML={{
+                        __html: `var _hmt = _hmt || [];(function(){var hm=document.createElement("script");hm.src="https://hm.baidu.com/hm.js?a279a450048889338ec3afdd144535c6";var s=document.getElementsByTagName("script")[0];s.parentNode.insertBefore(hm,s);})();`,
+                    }}
                 />
                 <AntdRegistry>
                     <AppProviders>{children}</AppProviders>
