@@ -6,6 +6,7 @@ import { ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
+import { resolveImagePreviewUrl } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "../types";
@@ -59,6 +60,7 @@ type VideoReferenceStats = {
 type NodeContentRendererProps = {
     node: CanvasNodeData;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    scale: number;
     isEditingContent: boolean;
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     isBatchRoot: boolean;
@@ -305,6 +307,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     <NodeContent
                         node={data}
                         theme={theme}
+                        scale={scale}
                         isEditingContent={isEditingContent}
                         textareaRef={textareaRef}
                         isBatchRoot={isBatchRoot}
@@ -510,6 +513,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
     return (
         <ImageContent
             node={props.node}
+            scale={props.scale}
             isBatchRoot={props.isBatchRoot}
             batchCount={props.batchCount}
             batchExpanded={props.batchExpanded}
@@ -571,6 +575,7 @@ function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
 
 function ImageContent({
     node,
+    scale,
     isBatchRoot,
     batchCount,
     batchExpanded,
@@ -580,6 +585,7 @@ function ImageContent({
     onSetBatchPrimary,
 }: {
     node: CanvasNodeData;
+    scale: number;
     isBatchRoot: boolean;
     batchCount: number;
     batchExpanded: boolean;
@@ -590,12 +596,28 @@ function ImageContent({
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
+    const content = node.metadata!.content!;
+    const storageKey = node.metadata?.storageKey;
+    const useThumbnail = Boolean(storageKey && Math.max(node.width, node.height) * scale <= 640);
+    const [thumbnail, setThumbnail] = useState<{ storageKey: string; content: string; url: string } | null>(null);
+
+    useEffect(() => {
+        if (!storageKey || !useThumbnail) return;
+        let active = true;
+        void resolveImagePreviewUrl(storageKey, content).then((url) => {
+            if (active) setThumbnail({ storageKey, content, url });
+        });
+        return () => {
+            active = false;
+        };
+    }, [content, storageKey, useThumbnail]);
+    const imageUrl = useThumbnail && thumbnail?.storageKey === storageKey && thumbnail.content === content ? thumbnail.url : content;
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
             <div className="h-full w-full overflow-hidden rounded-3xl">
                 <img
-                    src={node.metadata!.content!}
+                    src={imageUrl}
                     alt={node.title}
                     draggable={false}
                     onDragStart={(event) => event.preventDefault()}

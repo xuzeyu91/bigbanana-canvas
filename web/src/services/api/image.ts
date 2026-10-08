@@ -132,6 +132,36 @@ const IMAGE_MAX_PIXELS = 8294400;
 const IMAGE_MAX_EDGE = 3840;
 const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
+const IMAGE_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+
+async function withImageRequestTimeout<T>(signal: AbortSignal | undefined, request: (signal: AbortSignal) => Promise<T>) {
+    if (signal?.aborted) throw new DOMException("请求已取消", "AbortError");
+    const controller = new AbortController();
+    let timedOut = false;
+    const onAbort = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, IMAGE_REQUEST_TIMEOUT_MS);
+
+    try {
+        const result = await request(controller.signal);
+        if (timedOut) throw new Error("图片请求超过 10 分钟，已自动终止");
+        return result;
+    } catch (error) {
+        if (timedOut) throw new Error("图片请求超过 10 分钟，已自动终止");
+        if (signal?.aborted) throw new DOMException("请求已取消", "AbortError");
+        throw error;
+    } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+    }
+}
+
+function isGptImageModel(model: string) {
+    return /(?:^|\/)gpt-image(?:-|$)/i.test(model);
+}
 
 function normalizeQuality(quality: string, model: string) {
     const value = quality.trim().toLowerCase();
@@ -854,7 +884,11 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
     return images;
 }
 
-export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
+export function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
+    return withImageRequestTimeout(options?.signal, (signal) => requestGenerationWithSignal(config, prompt, { ...options, signal }));
+}
+
+async function requestGenerationWithSignal(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const resolution = normalizeImageResolution(config.imageResolution, requestConfig.model);
@@ -880,7 +914,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 ...(quality ? { quality } : {}),
                 ...(requestSize ? { size: requestSize } : {}),
                 ...(background ? { background } : {}),
-                response_format: "b64_json",
+                ...(!isGptImageModel(requestConfig.model) ? { response_format: "b64_json" } : {}),
                 output_format: IMAGE_OUTPUT_FORMAT,
             },
             {
@@ -895,7 +929,11 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     }
 }
 
-export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
+export function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
+    return withImageRequestTimeout(options?.signal, (signal) => requestEditWithSignal(config, prompt, references, { ...options, signal }));
+}
+
+async function requestEditWithSignal(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
@@ -903,7 +941,6 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const size = normalizeImageAspectRatio(config.size, requestConfig.model, resolution);
     const effectiveConfig = { ...requestConfig, model: resolveImageRequestModel(requestConfig.model, resolution), size };
     if (requestConfig.apiFormat === "gemini") {
-        if (mask) throw new Error("Gemini 调用格式暂不支持蒙版编辑");
         try {
             return await requestGeminiImages(effectiveConfig, requestPrompt, references, n, options);
         } catch (error) {
@@ -917,7 +954,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     formData.set("model", effectiveConfig.model);
     formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
     formData.set("n", String(n));
-    formData.set("response_format", "b64_json");
+    if (!isGptImageModel(requestConfig.model)) formData.set("response_format", "b64_json");
     formData.set("output_format", IMAGE_OUTPUT_FORMAT);
     if (quality) {
         formData.set("quality", quality);
@@ -929,8 +966,8 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         formData.set("background", background);
     }
     const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    files.forEach((file) => formData.append("image", file));
-    if (mask) formData.set("mask", dataUrlToFile(mask));
+    const imageField = files.length > 1 ? "image[]" : "image";
+    files.forEach((file) => formData.append(imageField, file));
 
     try {
         const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal });

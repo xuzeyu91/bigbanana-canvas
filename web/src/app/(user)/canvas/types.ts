@@ -75,6 +75,9 @@ export type CanvasNodeMetadata = {
     mimeType?: string;
     bytes?: number;
     durationMs?: number;
+    videoTaskId?: string;
+    videoTaskProvider?: "openai" | "seedance";
+    videoTaskModel?: string;
     resourceRole?: CanvasProductionResourceRole;
     resourceLocked?: boolean;
     shotId?: string;

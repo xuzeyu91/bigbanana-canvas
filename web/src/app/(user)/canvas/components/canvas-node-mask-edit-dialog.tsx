@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button, Input, Modal, Slider } from "antd";
-import { Brush, Eraser, RotateCcw, WandSparkles, X } from "lucide-react";
+import { Brush, Eraser, Download, RotateCcw, WandSparkles, X } from "lucide-react";
 
 import { readImageMeta } from "@/lib/image-utils";
 
 export type CanvasImageMaskEditPayload = {
     prompt: string;
-    maskDataUrl: string;
+    annotatedDataUrl: string;
+    action: "export" | "generate";
 };
 
 type DrawMode = "paint" | "erase";
@@ -17,7 +18,7 @@ const defaultBrushSize = 100;
 const maskFillColor = "rgba(37, 99, 235, .38)";
 const maskBorderColor = "rgba(255, 255, 255, .72)";
 
-export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (payload: CanvasImageMaskEditPayload) => void }) {
+export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (payload: CanvasImageMaskEditPayload) => void | Promise<void> }) {
     const maskCanvasRef = useRef<HTMLCanvasElement>(null);
     const previewCanvasRef = useRef<HTMLCanvasElement>(null);
     const drawingRef = useRef<{ active: boolean; last: { x: number; y: number } | null }>({ active: false, last: null });
@@ -26,6 +27,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
     const [brushSize, setBrushSize] = useState(defaultBrushSize);
     const [mode, setMode] = useState<DrawMode>("paint");
     const [error, setError] = useState("");
+    const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
         if (!open) return;
@@ -33,6 +35,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         setBrushSize(defaultBrushSize);
         setMode("paint");
         setError("");
+        setSubmitting(false);
         void readImageMeta(dataUrl).then(setImage);
     }, [dataUrl, open]);
 
@@ -91,17 +94,26 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         setError("");
     };
 
-    const submit = () => {
+    const submit = async (action: CanvasImageMaskEditPayload["action"]) => {
+        if (submitting) return;
         const nextPrompt = prompt.trim();
         const canvas = maskCanvasRef.current;
-        if (!nextPrompt) return setError("请输入修改要求");
+        if (action === "generate" && !nextPrompt) return setError("请输入修改要求");
         if (!canvas) return;
         if (!canvasHasPaint(canvas)) return setError("请先涂抹局部区域");
-        onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas) });
+        setSubmitting(true);
+        try {
+            const annotatedDataUrl = await buildAnnotatedImage(dataUrl, canvas);
+            await onConfirm({ prompt: nextPrompt, annotatedDataUrl, action });
+        } catch (submitError) {
+            setError(submitError instanceof Error ? submitError.message : "生成标注图失败，请重试");
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     return (
-        <Modal title={null} open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} width={980} centered destroyOnHidden>
+        <Modal title={null} open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} width={980} centered destroyOnHidden closable={!submitting} maskClosable={!submitting} keyboard={!submitting}>
             <div className="grid gap-5 lg:grid-cols-[minmax(360px,1fr)_320px]">
                 <div className="flex min-h-[360px] items-center justify-center rounded-xl border border-black/10 bg-transparent p-0 dark:border-white/10">
                     <div className="relative inline-block max-w-full overflow-hidden rounded-lg bg-transparent select-none">
@@ -163,15 +175,18 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                     </div>
 
                     <div className="mt-auto flex items-center justify-between gap-2">
-                        <Button icon={<RotateCcw className="size-4" />} onClick={resetMask}>
+                        <Button icon={<RotateCcw className="size-4" />} onClick={resetMask} disabled={submitting}>
                             重置
                         </Button>
                         <div className="flex items-center gap-2">
-                            <Button icon={<X className="size-4" />} onClick={onClose}>
+                            <Button icon={<X className="size-4" />} onClick={onClose} disabled={submitting}>
                                 取消
                             </Button>
-                            <Button type="primary" icon={<WandSparkles className="size-4" />} onClick={submit}>
-                                AI 修改
+                            <Button icon={<Download className="size-4" />} onClick={() => void submit("export")} loading={submitting}>
+                                导出到画布
+                            </Button>
+                            <Button type="primary" icon={<WandSparkles className="size-4" />} onClick={() => void submit("generate")} loading={submitting}>
+                                立即生成
                             </Button>
                         </div>
                     </div>
@@ -259,21 +274,28 @@ function isMaskEdge(data: Uint8ClampedArray, width: number, x: number, y: number
     return data[((y - step) * width + x) * 4 + 3] === 0 || data[((y + step) * width + x) * 4 + 3] === 0 || data[(y * width + x - step) * 4 + 3] === 0 || data[(y * width + x + step) * 4 + 3] === 0;
 }
 
-function buildEditMask(selectionCanvas: HTMLCanvasElement) {
+async function buildAnnotatedImage(dataUrl: string, selectionCanvas: HTMLCanvasElement) {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("读取原图失败"));
+        image.src = dataUrl;
+    });
     const canvas = document.createElement("canvas");
     canvas.width = selectionCanvas.width;
     canvas.height = selectionCanvas.height;
     const context = canvas.getContext("2d");
-    if (!context) return selectionCanvas.toDataURL("image/png");
-    const selectionContext = selectionCanvas.getContext("2d");
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    if (!selectionContext) return canvas.toDataURL("image/png");
-    const selection = selectionContext.getImageData(0, 0, canvas.width, canvas.height);
-    const mask = context.getImageData(0, 0, canvas.width, canvas.height);
-    for (let index = 3; index < mask.data.length; index += 4) {
-        if (selection.data[index] > 0) mask.data[index] = 0;
-    }
-    context.putImageData(mask, 0, 0);
+    if (!context) throw new Error("无法创建蒙版标注图");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const overlay = document.createElement("canvas");
+    overlay.width = canvas.width;
+    overlay.height = canvas.height;
+    const overlayContext = overlay.getContext("2d");
+    if (!overlayContext) throw new Error("无法创建蒙版标注图");
+    overlayContext.fillStyle = "rgba(37, 99, 235, .38)";
+    overlayContext.fillRect(0, 0, overlay.width, overlay.height);
+    overlayContext.globalCompositeOperation = "destination-in";
+    overlayContext.drawImage(selectionCanvas, 0, 0);
+    context.drawImage(overlay, 0, 0);
     return canvas.toDataURL("image/png");
 }

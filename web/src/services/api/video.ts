@@ -5,7 +5,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isArkPlanBaseUrl, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { normalizeVideoAspectRatio, normalizeVideoDuration } from "@/lib/video-model-capabilities";
-import { buildApiUrl, modelOptionName, proxyAntskUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, decodeChannelModel, encodeChannelModel, modelOptionName, proxyAntskUrl, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -36,7 +36,7 @@ type SeedanceTask = {
     content?: { video_url?: string; last_frame_url?: string } | null;
 };
 type ApiEnvelope<T> = T | { code?: number; data?: T | null; msg?: string; message?: string; success?: boolean };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; onTaskCreated?: (task: VideoGenerationTask) => void; onTaskFailed?: (task: VideoGenerationTask) => void };
 type OpenAIVideoTaskOptions = { useReferenceArray: boolean; maxReferences: number };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
@@ -82,34 +82,55 @@ function resolveOpenAIVideoTaskOptions(model: string): OpenAIVideoTaskOptions {
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
+    options?.onTaskCreated?.(task);
+    return resumeVideoGenerationTask(config, task, options);
+}
+
+export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
+    assertVideoTaskChannel(config, task);
     const delayMs = task.provider === "seedance" ? 5000 : 2500;
     for (let attempt = 0; attempt < 120; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status === "completed") return state.result;
-        if (state.status === "failed") throw new Error(state.error);
+        if (state.status === "failed") {
+            options?.onTaskFailed?.(task);
+            throw new Error(state.error);
+        }
         if (attempt === 119) throw new Error(`${task.provider === "seedance" ? "Seedance " : ""}视频生成超时，请稍后重试`);
         await delay(delayMs, options?.signal);
     }
     throw new Error("视频生成超时，请稍后重试");
 }
 
+function assertVideoTaskChannel(config: AiConfig, task: VideoGenerationTask) {
+    const decoded = decodeChannelModel(task.model);
+    const model = decoded?.model || task.model;
+    const channel = decoded ? config.channels.find((item) => item.id === decoded.channelId) : config.channels.find((item) => item.models.includes(model));
+    if (!channel || !channel.models.includes(model)) throw new Error("视频任务所属模型渠道不存在，请恢复原渠道配置后重试");
+    if (!channel.apiKey.trim()) throw new Error("视频任务所属模型渠道未配置 API Key，请配置后重试");
+}
+
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
+    const channelModel = decodeChannelModel(selectedModel);
+    const channel = channelModel ? config.channels.find((item) => item.id === channelModel.channelId) : resolveModelChannel(config, selectedModel);
+    if (!channel || !channel.models.includes(channelModel?.model || selectedModel)) throw new Error("视频模型所属渠道不存在，请重新选择模型渠道");
+    const taskModel = encodeChannelModel(channel.id, channelModel?.model || selectedModel);
     const normalizedModel = normalizeVideoModelId(selectedModel);
     if (shouldUseSeedanceTaskApi(requestConfig, normalizedModel)) {
-        return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        return createSeedanceTask(requestConfig, taskModel, prompt, references, videoReferences, audioReferences, options);
     }
     if (isViduGatewayModel(normalizedModel)) {
         if (videoReferences.length || audioReferences.length) throw new Error("Vidu Q3 当前不支持参考视频或参考音频，请只保留参考图片");
-        return createViduGatewayTask(requestConfig, selectedModel, prompt, references, options);
+        return createViduGatewayTask(requestConfig, taskModel, prompt, references, options);
     }
     if (videoReferences.length || audioReferences.length) {
         throw new Error("当前视频接口不支持参考视频或参考音频，请移除参考素材后重试");
     }
-    return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, resolveOpenAIVideoTaskOptions(normalizedModel), options);
+    return createOpenAIVideoTask(requestConfig, taskModel, prompt, references, resolveOpenAIVideoTaskOptions(normalizedModel), options);
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
