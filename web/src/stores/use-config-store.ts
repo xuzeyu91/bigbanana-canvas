@@ -64,12 +64,12 @@ export const ANTSK_UPSTREAM_BASE_URL = "https://api.antsk.cn";
 export const ANTSK_BASE_URL = "/api/new-api/gateway";
 const DEFAULT_IMAGE_MODEL_NAME = "gemini-3-pro-image-preview";
 const DEFAULT_IMAGE_MODEL_NAMES = [DEFAULT_IMAGE_MODEL_NAME, "gemini-3.1-flash-image-preview", "gpt-image-2", "gpt-image-1.5"];
-const DEFAULT_VIDEO_MODEL_NAMES = ["sora-2", "veo_3_1-fast", "viduq3-turbo", "viduq3-pro", "doubao-seedance-1-5-pro", "doubao-seedance-2-0-fast", "doubao-seedance-2-0", "happyhorse-1.0"];
+const DEFAULT_VIDEO_MODEL_NAMES = ["sora-2", "veo_3_1-fast", "viduq3-turbo", "viduq3-pro", "doubao-seedance-2-0-fast", "doubao-seedance-2-0", "happyhorse-1.0", "happyhorse-1.1"];
 const DEFAULT_TEXT_MODEL_NAME = "gpt-5.6-terra";
 const DEFAULT_TEXT_MODEL_NAMES = ["gpt-5.6-terra", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4", "gpt-5.5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "gemini-3.8-flash"];
 const DEFAULT_AUDIO_MODEL_NAME = "gpt-audio-1.5";
 const DEFAULT_AUDIO_MODEL_NAMES = ["gpt-audio-1.5", "gpt-audio-mini"];
-const REMOVED_MODEL_NAMES = new Set(["gpt-5.1", "gpt-5.2", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7"]);
+const REMOVED_MODEL_NAMES = new Set(["gpt-5.1", "gpt-5.2", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7", "doubao-seedance-1-5-pro"]);
 const LEGACY_IMAGE_DEFAULT_MODEL_NAMES = new Set(["gpt-image-2"]);
 const LEGACY_VIDEO_DEFAULT_MODEL_NAMES = new Set(["grok-imagine-video"]);
 const LEGACY_TEXT_DEFAULT_MODEL_NAMES = new Set(["gpt-5.4", "gpt-5.5"]);
@@ -287,7 +287,7 @@ function normalizeModelList(models: string[], channels: ModelChannel[]) {
     const allModelOptions = channels.flatMap((channel) => channel.models.map((model) => encodeChannelModel(channel.id, model)));
     return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)))
         .map((model) => normalizeModelOptionValue(model, channels))
-        .filter((model) => !allModelOptions.length || allModelOptions.includes(model) || !isChannelModelValue(model));
+        .filter((model) => model && (!allModelOptions.length || allModelOptions.includes(model) || !isChannelModelValue(model)));
 }
 
 function normalizeWebdavSyncConfig(config: WebdavSyncConfig): WebdavSyncConfig {
@@ -348,6 +348,7 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
     const model = (value || "").trim();
     if (!model) return "";
     const decoded = decodeChannelModel(model);
+    if (REMOVED_MODEL_NAMES.has(decoded?.model || model)) return "";
     if (decoded) {
         const channel = channels.find((item) => item.id === decoded.channelId);
         return channel && channel.models.includes(decoded.model) ? model : "";
