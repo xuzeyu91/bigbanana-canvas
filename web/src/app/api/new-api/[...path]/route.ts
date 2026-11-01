@@ -405,7 +405,7 @@ async function handleRequest(request: NextRequest, pathSegments: string[] = []) 
         const endpoint = getRequestEndpoint(request, body);
         const response = await callNewApi({
             endpoint,
-            path: `/api/verification${buildQueryString({ email: normalizeMaybeString(body.email) })}`,
+            path: `/api/verification${buildQueryString({ email: normalizeMaybeString(body.email), turnstile: normalizeMaybeString(body.turnstile) })}`,
         });
         return jsonResponse(response.status || 200, normalizeUpstreamEnvelope(response, await parseUpstreamJson(response)));
     }
@@ -414,7 +414,7 @@ async function handleRequest(request: NextRequest, pathSegments: string[] = []) 
         const endpoint = getRequestEndpoint(request, body);
         const response = await callNewApi({
             endpoint,
-            path: "/api/user/register",
+            path: `/api/user/register${buildQueryString({ turnstile: normalizeMaybeString(body.turnstile) })}`,
             method: "POST",
             body: {
                 username: normalizeMaybeString(body.username),
@@ -432,7 +432,7 @@ async function handleRequest(request: NextRequest, pathSegments: string[] = []) 
         const upstreamJar: Record<string, string> = {};
         const response = await callNewApi({
             endpoint,
-            path: "/api/user/login",
+            path: `/api/user/login${buildQueryString({ turnstile: normalizeMaybeString(body.turnstile) })}`,
             method: "POST",
             body: {
                 username: normalizeMaybeString(body.username),

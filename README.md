@@ -172,6 +172,8 @@ docker stop bigbanana-canvas-app
 3. 如果需要启用提示词同步，打开 `/prompts` 页面将自动抓取优秀开源库并生成在内存中。
 4. 如需在不同设备、浏览器之间实现画布及素材的实时同步，可以在配置项中填入你的 WebDAV 配置。
 
+若 new-api 开启 Turnstile，请在 Cloudflare 对应 widget 的允许域名中加入画布实际访问的域名（不含协议、端口或路径）。画布从 new-api 状态接口读取公开 Site Key；Secret Key 只配置在 new-api 服务端，不要填入画布。自部署到未授权域名时，仍可到 new-api 官网获取 API Key 后在“渠道”中手动填写。
+
 ---
 
 ## 项目文档

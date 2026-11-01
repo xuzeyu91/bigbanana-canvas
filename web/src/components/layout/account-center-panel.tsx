@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Button, Form, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag } from "antd";
+import { Alert, App, Button, Form, Input, Progress, Select, Space, Statistic, Table, Tabs, Tag } from "antd";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -51,6 +51,7 @@ import {
     type NewApiTopupInfo,
 } from "@/services/new-api-service";
 import { useConfigStore } from "@/stores/use-config-store";
+import { TurnstileVerification } from "./turnstile-verification";
 
 const TOKEN_STATUS_ENABLED = 1;
 const TOKEN_STATUS_DISABLED = 2;
@@ -178,10 +179,30 @@ export function AccountCenterPanel() {
     const [authLoading, setAuthLoading] = useState(false);
     const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
     const [authTab, setAuthTab] = useState<"login" | "register">("login");
+    const [turnstileToken, setTurnstileToken] = useState("");
+    const [turnstileRevision, setTurnstileRevision] = useState(0);
 
     const [loginForm, setLoginForm] = useState({ username: "", password: "", twoFactorCode: "" });
     const [registerForm, setRegisterForm] = useState({ username: "", email: "", verificationCode: "", password: "", confirmPassword: "", affCode: "" });
     const [verificationLoading, setVerificationLoading] = useState(false);
+    const authUnavailable = !status || statusLoading || authLoading || verificationLoading || Boolean(status.turnstile_check && !turnstileToken);
+
+    const resetTurnstile = useCallback(() => {
+        setTurnstileToken("");
+        setTurnstileRevision((value) => value + 1);
+    }, []);
+
+    const checkAuthVerification = useCallback(() => {
+        if (!status || statusLoading) {
+            message.warning("请等待账号系统状态加载完成");
+            return false;
+        }
+        if (status.turnstile_check && !turnstileToken) {
+            message.warning("请先完成安全验证");
+            return false;
+        }
+        return true;
+    }, [message, status, statusLoading, turnstileToken]);
 
     const [syncingKey, setSyncingKey] = useState(false);
     const [activeTab, setActiveTab] = useState<"tokens" | "billing" | "logs">("tokens");
@@ -461,17 +482,16 @@ export function AccountCenterPanel() {
     );
 
     const handleLogin = useCallback(async () => {
+        if (authLoading || verificationLoading) return;
         if (!loginForm.username.trim() || !loginForm.password.trim()) {
             message.warning("请输入用户名和密码");
             return;
         }
-        if (status?.turnstile_check) {
-            message.warning("当前账号系统启用了额外安全验证，暂不支持在此登录");
-            return;
-        }
+        if (!checkAuthVerification()) return;
         setAuthLoading(true);
+        setTurnstileToken("");
         try {
-            const result = await loginNewApiUser({ username: loginForm.username.trim(), password: loginForm.password });
+            const result = await loginNewApiUser({ username: loginForm.username.trim(), password: loginForm.password, turnstile: status?.turnstile_check ? turnstileToken : undefined });
             if (result.requireTwoFactor) {
                 setNeedsTwoFactor(true);
                 message.info("该账号开启了 2FA，请输入验证码继续");
@@ -483,8 +503,9 @@ export function AccountCenterPanel() {
             message.error(error instanceof Error ? error.message : "登录失败");
         } finally {
             setAuthLoading(false);
+            resetTurnstile();
         }
-    }, [handleLoginSuccess, loginForm.password, loginForm.username, message, status?.turnstile_check]);
+    }, [authLoading, checkAuthVerification, handleLoginSuccess, loginForm.password, loginForm.username, message, resetTurnstile, status?.turnstile_check, turnstileToken, verificationLoading]);
 
     const handleVerifyTwoFactor = useCallback(async () => {
         if (!loginForm.twoFactorCode.trim()) {
@@ -504,6 +525,7 @@ export function AccountCenterPanel() {
     }, [handleLoginSuccess, loginForm.twoFactorCode, message]);
 
     const handleRegister = useCallback(async () => {
+        if (authLoading || verificationLoading) return;
         if (!registerForm.username.trim()) {
             message.warning("请输入用户名");
             return;
@@ -520,11 +542,9 @@ export function AccountCenterPanel() {
             message.warning("当前注册需要邮箱和验证码");
             return;
         }
-        if (status?.turnstile_check) {
-            message.warning("当前账号系统启用了额外安全验证，暂不支持在此注册");
-            return;
-        }
+        if (!checkAuthVerification()) return;
         setAuthLoading(true);
+        setTurnstileToken("");
         try {
             await registerNewApiUser({
                 username: registerForm.username.trim(),
@@ -532,6 +552,7 @@ export function AccountCenterPanel() {
                 email: registerForm.email.trim() || undefined,
                 verification_code: registerForm.verificationCode.trim() || undefined,
                 aff_code: registerForm.affCode.trim() || undefined,
+                turnstile: status?.turnstile_check ? turnstileToken : undefined,
             });
             setAuthTab("login");
             setLoginForm((current) => ({ ...current, username: registerForm.username.trim(), password: "" }));
@@ -540,24 +561,29 @@ export function AccountCenterPanel() {
             message.error(error instanceof Error ? error.message : "注册失败");
         } finally {
             setAuthLoading(false);
+            resetTurnstile();
         }
-    }, [message, registerForm, status?.email_verification, status?.turnstile_check]);
+    }, [authLoading, checkAuthVerification, message, registerForm, resetTurnstile, status?.email_verification, status?.turnstile_check, turnstileToken, verificationLoading]);
 
     const handleSendVerificationCode = useCallback(async () => {
+        if (authLoading || verificationLoading) return;
         if (!registerForm.email.trim()) {
             message.warning("请先填写邮箱地址");
             return;
         }
+        if (!checkAuthVerification()) return;
         setVerificationLoading(true);
+        setTurnstileToken("");
         try {
-            await sendNewApiVerificationCode(registerForm.email.trim());
+            await sendNewApiVerificationCode(registerForm.email.trim(), undefined, status?.turnstile_check ? turnstileToken : undefined);
             message.success("验证码已发送，请检查邮箱");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "验证码发送失败");
         } finally {
             setVerificationLoading(false);
+            resetTurnstile();
         }
-    }, [message, registerForm.email]);
+    }, [authLoading, checkAuthVerification, message, registerForm.email, resetTurnstile, status?.turnstile_check, turnstileToken, verificationLoading]);
 
     const handleLogout = useCallback(async () => {
         setAuthLoading(true);
@@ -847,9 +873,21 @@ export function AccountCenterPanel() {
                         </Button>
                     </div>
 
+                    {isConfigOpen && status?.turnstile_check && !needsTwoFactor ? (
+                        status.turnstile_site_key ? (
+                            <TurnstileVerification key={`${authTab}-${turnstileRevision}`} siteKey={status.turnstile_site_key} onToken={setTurnstileToken} />
+                        ) : (
+                            <Alert type="warning" showIcon title="账号系统已开启安全验证，但未提供 Turnstile Site Key，请检查 new-api 配置。" />
+                        )
+                    ) : null}
+
                     <Tabs
                         activeKey={authTab}
-                        onChange={(key) => setAuthTab(key as "login" | "register")}
+                        onChange={(key) => {
+                            if (authLoading || verificationLoading) return;
+                            resetTurnstile();
+                            setAuthTab(key as "login" | "register");
+                        }}
                         items={[
                             {
                                 key: "login",
@@ -863,7 +901,7 @@ export function AccountCenterPanel() {
                                             <Input.Password
                                                 value={loginForm.password}
                                                 onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))}
-                                                onPressEnter={() => void handleLogin()}
+                                                onPressEnter={() => void (needsTwoFactor ? handleVerifyTwoFactor() : handleLogin())}
                                             />
                                         </Form.Item>
                                         {needsTwoFactor ? (
@@ -872,7 +910,7 @@ export function AccountCenterPanel() {
                                             </Form.Item>
                                         ) : null}
                                         <Space>
-                                            <Button type="primary" loading={authLoading} onClick={() => void handleLogin()}>
+                                            <Button type="primary" loading={authLoading} disabled={authUnavailable || needsTwoFactor} onClick={() => void handleLogin()}>
                                                 登录
                                             </Button>
                                             {needsTwoFactor ? (
@@ -892,13 +930,13 @@ export function AccountCenterPanel() {
                                         <Form.Item label="用户名">
                                             <Input value={registerForm.username} onChange={(event) => setRegisterForm((current) => ({ ...current, username: event.target.value }))} />
                                         </Form.Item>
-                                        <Form.Item label="邮箱（可选）">
+                                        <Form.Item label={status?.email_verification ? "邮箱" : "邮箱（可选）"}>
                                             <Input value={registerForm.email} onChange={(event) => setRegisterForm((current) => ({ ...current, email: event.target.value }))} />
                                         </Form.Item>
                                         <Form.Item label="验证码（启用邮箱验证时必填）">
                                             <div className="flex items-center gap-2">
                                                 <Input value={registerForm.verificationCode} onChange={(event) => setRegisterForm((current) => ({ ...current, verificationCode: event.target.value }))} />
-                                                <Button loading={verificationLoading} onClick={() => void handleSendVerificationCode()}>
+                                                <Button loading={verificationLoading} disabled={authUnavailable} onClick={() => void handleSendVerificationCode()}>
                                                     发验证码
                                                 </Button>
                                             </div>
@@ -912,7 +950,7 @@ export function AccountCenterPanel() {
                                         <Form.Item label="邀请码（可选）">
                                             <Input value={registerForm.affCode} onChange={(event) => setRegisterForm((current) => ({ ...current, affCode: event.target.value }))} />
                                         </Form.Item>
-                                        <Button type="primary" loading={authLoading} onClick={() => void handleRegister()}>
+                                        <Button type="primary" loading={authLoading} disabled={authUnavailable} onClick={() => void handleRegister()}>
                                             注册
                                         </Button>
                                     </Form>

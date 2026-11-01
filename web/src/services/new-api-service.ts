@@ -16,6 +16,7 @@ export interface NewApiStatus {
     system_name?: string;
     email_verification?: boolean;
     turnstile_check?: boolean;
+    turnstile_site_key?: string;
     top_up_link?: string;
     quota_per_unit?: number;
     custom_currency_symbol?: string;
@@ -344,16 +345,16 @@ export async function bootstrapNewApiSession(endpoint = getNewApiEndpoint()) {
     return session;
 }
 
-export async function sendNewApiVerificationCode(email: string, endpoint = getNewApiEndpoint()) {
+export async function sendNewApiVerificationCode(email: string, endpoint = getNewApiEndpoint(), turnstile?: string) {
     const payload = await proxyFetch<NewApiEnvelope<null>>("/api/new-api/verification", {
         method: "POST",
-        body: JSON.stringify({ endpoint, email }),
+        body: JSON.stringify({ endpoint, email, turnstile }),
     });
     unwrapEnvelope(payload);
 }
 
 export async function registerNewApiUser(
-    input: { username: string; password: string; email?: string; verification_code?: string; aff_code?: string },
+    input: { username: string; password: string; email?: string; verification_code?: string; aff_code?: string; turnstile?: string },
     endpoint = getNewApiEndpoint(),
 ) {
     const payload = await proxyFetch<NewApiEnvelope<null>>("/api/new-api/register", {
@@ -363,7 +364,7 @@ export async function registerNewApiUser(
     unwrapEnvelope(payload);
 }
 
-export async function loginNewApiUser(input: { username: string; password: string }, endpoint = getNewApiEndpoint()): Promise<NewApiLoginResult> {
+export async function loginNewApiUser(input: { username: string; password: string; turnstile?: string }, endpoint = getNewApiEndpoint()): Promise<NewApiLoginResult> {
     const payload = await proxyFetch<NewApiEnvelope<NewApiAuthUser>>("/api/new-api/session/login", {
         method: "POST",
         body: JSON.stringify({ endpoint, ...input }),
