@@ -113,6 +113,27 @@ try {
         await assert.rejects(() => api.createVideoGenerationTask(config("viduq4-preview"), "风筝", [], [], [{ id: "audio" }]), /不支持参考视频或参考音频/);
     });
 
+    await test("all Q3/Q4 durations serialize as strings accepted by the gateway", async () => {
+        for (const model of ["viduq3-turbo", "viduq3-pro", "viduq4-preview"]) {
+            const minDuration = model === "viduq4-preview" ? 3 : 1;
+            for (let seconds = minDuration; seconds <= 16; seconds++) {
+                axios.defaults.adapter = async (request) => {
+                    const body = JSON.parse(request.data);
+                    if (typeof body.seconds !== "string") {
+                        throw new Error("json: cannot unmarshal number into Go struct field .Alias.seconds of type string");
+                    }
+                    assert.equal(body.seconds, String(seconds));
+                    assert.equal(body.model, model);
+                    return result(request, { id: "task_string_seconds", status: "queued" });
+                };
+                const task = await api.createVideoGenerationTask(config(model, {
+                    videoSeconds: String(seconds),
+                }), "风筝升起", [image(1)]);
+                assert.deepEqual(task, { id: "task_string_seconds", provider: "openai", model: selectedModel(model) });
+            }
+        }
+    });
+
     await test("Q3 0/1/2/3/7 image requests use new top-level bridge fields in order", async () => {
         for (const model of ["viduq3-turbo", "viduq3-pro"]) {
             for (const count of [0, 1, 2, 3, 7]) {
@@ -131,7 +152,7 @@ try {
                 assert.deepEqual(task, { id: "task_q3", provider: "openai", model: selectedModel(model) });
                 assert.deepEqual(body.input_reference, images.map((item) => item.dataUrl));
                 assert.equal(body.model, model);
-                assert.equal(body.seconds, seconds);
+                assert.equal(body.seconds, String(seconds));
                 assert.equal(body.resolution, "720p");
                 assert.equal(body.audio, true);
                 assert.equal(body.aspect_ratio, "9:16");
@@ -154,7 +175,7 @@ try {
             const task = await api.createVideoGenerationTask(config("viduq4-preview", { videoSeconds: String(seconds) }), "风筝在图片1中升起", images);
             assert.equal(task.provider, "openai");
             assert.equal(body.model, "viduq4-preview");
-            assert.equal(body.seconds, seconds);
+            assert.equal(body.seconds, String(seconds));
             assert.deepEqual(body.input_reference, images.map((item) => item.dataUrl));
             if (count > 1) {
                 assert.match(body.prompt, /不强制首尾帧/);
@@ -386,7 +407,7 @@ try {
     await test("same-origin gateway transparently forwards new Vidu JSON and poll/content responses", async () => {
         const route = await import("@/app/api/new-api/[...path]/route");
         const payload = {
-            model: "viduq4-preview", prompt: "风筝", seconds: 3, resolution: "720p",
+            model: "viduq4-preview", prompt: "风筝", seconds: "3", resolution: "720p",
             audio: true, aspect_ratio: "16:9", input_reference: [image(1).dataUrl],
         };
         const original = globalThis.fetch;

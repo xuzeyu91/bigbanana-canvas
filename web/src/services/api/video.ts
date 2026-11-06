@@ -197,7 +197,7 @@ async function createViduGatewayTask(config: AiConfig, model: string, prompt: st
     const payload = {
         model: modelOptionName(model),
         prompt: annotatedPrompt,
-        seconds,
+        seconds: String(seconds),
         resolution: "720p",
         audio: true,
         aspect_ratio: normalizeVideoAspectRatio(config.size, model),
