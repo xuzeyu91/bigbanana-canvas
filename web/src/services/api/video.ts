@@ -201,7 +201,7 @@ async function createViduGatewayTask(config: AiConfig, model: string, prompt: st
         resolution: "720p",
         audio: true,
         aspect_ratio: normalizeVideoAspectRatio(config.size, model),
-        input_reference: images,
+        images,
     };
     if (new Blob([JSON.stringify(payload)]).size > 20 * 1024 * 1024) throw new Error("Vidu 请求体超过 20 MB，请压缩参考图片后重试");
     try {

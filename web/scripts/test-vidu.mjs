@@ -113,22 +113,30 @@ try {
         await assert.rejects(() => api.createVideoGenerationTask(config("viduq4-preview"), "风筝", [], [], [{ id: "audio" }]), /不支持参考视频或参考音频/);
     });
 
-    await test("all Q3/Q4 durations serialize as strings accepted by the gateway", async () => {
+    await test("all Q3/Q4 durations and image modes match the gateway wire types", async () => {
         for (const model of ["viduq3-turbo", "viduq3-pro", "viduq4-preview"]) {
             const minDuration = model === "viduq4-preview" ? 3 : 1;
+            const imageCounts = model === "viduq4-preview" ? [1, 2, 15] : [0, 1, 2, 3, 7];
             for (let seconds = minDuration; seconds <= 16; seconds++) {
+                const count = imageCounts[(seconds - minDuration) % imageCounts.length];
+                const images = Array.from({ length: count }, (_, index) => image(index));
                 axios.defaults.adapter = async (request) => {
                     const body = JSON.parse(request.data);
                     if (typeof body.seconds !== "string") {
                         throw new Error("json: cannot unmarshal number into Go struct field .Alias.seconds of type string");
                     }
+                    if (Object.hasOwn(body, "input_reference") && typeof body.input_reference !== "string") {
+                        throw new Error("json: cannot unmarshal array into Go struct field .Alias.input_reference of type string");
+                    }
+                    assert.ok(!Object.hasOwn(body, "input_reference"));
+                    assert.deepEqual(body.images, images.map((reference) => reference.dataUrl));
                     assert.equal(body.seconds, String(seconds));
                     assert.equal(body.model, model);
                     return result(request, { id: "task_string_seconds", status: "queued" });
                 };
                 const task = await api.createVideoGenerationTask(config(model, {
                     videoSeconds: String(seconds),
-                }), "风筝升起", [image(1)]);
+                }), "风筝升起", images);
                 assert.deepEqual(task, { id: "task_string_seconds", provider: "openai", model: selectedModel(model) });
             }
         }
@@ -150,13 +158,13 @@ try {
                 const seconds = count === 7 ? 16 : 1;
                 const task = await api.createVideoGenerationTask(config(model, { size: "9:16", videoSeconds: String(seconds) }), "风筝升起", images);
                 assert.deepEqual(task, { id: "task_q3", provider: "openai", model: selectedModel(model) });
-                assert.deepEqual(body.input_reference, images.map((item) => item.dataUrl));
+                assert.deepEqual(body.images, images.map((item) => item.dataUrl));
                 assert.equal(body.model, model);
                 assert.equal(body.seconds, String(seconds));
                 assert.equal(body.resolution, "720p");
                 assert.equal(body.audio, true);
                 assert.equal(body.aspect_ratio, "9:16");
-                for (const old of ["images", "duration", "metadata"]) assert.ok(!Object.hasOwn(body, old));
+                for (const old of ["input_reference", "duration", "metadata"]) assert.ok(!Object.hasOwn(body, old));
                 if (count < 3) assert.equal(body.prompt, "风筝升起");
                 else assert.ok(body.prompt.includes(`[@${count}]（图片${count}）`));
             }
@@ -176,7 +184,7 @@ try {
             assert.equal(task.provider, "openai");
             assert.equal(body.model, "viduq4-preview");
             assert.equal(body.seconds, String(seconds));
-            assert.deepEqual(body.input_reference, images.map((item) => item.dataUrl));
+            assert.deepEqual(body.images, images.map((item) => item.dataUrl));
             if (count > 1) {
                 assert.match(body.prompt, /不强制首尾帧/);
                 assert.ok(body.prompt.includes(`[@${count}]（图片${count}）`));
@@ -201,7 +209,7 @@ try {
             return result(request, { id: "task_assets" });
         };
         await api.createVideoGenerationTask(config("viduq4-preview"), context.prompt, context.referenceImages);
-        assert.deepEqual(body.input_reference, context.referenceImages.map((item) => item.dataUrl));
+        assert.deepEqual(body.images, context.referenceImages.map((item) => item.dataUrl));
         for (const [i, reference] of context.referenceImages.entries()) {
             assert.ok(body.prompt.includes(`[@${i + 1}]（图片${i + 1}）：${reference.name}`));
         }
@@ -408,7 +416,7 @@ try {
         const route = await import("@/app/api/new-api/[...path]/route");
         const payload = {
             model: "viduq4-preview", prompt: "风筝", seconds: "3", resolution: "720p",
-            audio: true, aspect_ratio: "16:9", input_reference: [image(1).dataUrl],
+            audio: true, aspect_ratio: "16:9", images: [image(1).dataUrl],
         };
         const original = globalThis.fetch;
         try {
