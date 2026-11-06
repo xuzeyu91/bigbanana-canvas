@@ -1,3 +1,4 @@
+import { resolveVideoModelCapabilities, viduReferenceImageError } from "@/lib/video-model-capabilities";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasGenerationRecord, type CanvasNodeData, type CanvasNodeMetadata, type CanvasProductionResourceRole, type CanvasShotStage } from "../types";
 
 export const productionResourceRoles: Array<{ value: CanvasProductionResourceRole; label: string }> = [
@@ -36,8 +37,10 @@ export function inferNodeGenerationMode(node: CanvasNodeData): CanvasGenerationM
 }
 
 export function resolveVideoReferenceImageLimit(model: string) {
+    const referenceImageLimit = resolveVideoModelCapabilities(model).referenceImageLimit;
+    if (referenceImageLimit) return referenceImageLimit;
     const normalizedModel = String(model || "").trim().toLowerCase();
-    if (normalizedModel.includes("viduq3") || normalizedModel.includes("veo") || normalizedModel.includes("doubao-seedance-1-5")) return 2;
+    if (normalizedModel.includes("veo") || normalizedModel.includes("doubao-seedance-1-5")) return 2;
     if (normalizedModel.includes("doubao-seedance") || normalizedModel.includes("seedance") || normalizedModel.includes("251215") || normalizedModel.includes("260128")) return 4;
     return 1;
 }
@@ -60,7 +63,11 @@ export function preflightCanvasGeneration({ node, nodes, mode, prompt, model, in
     if (!hasPrompt && mode !== "image") issues.push({ severity: "error", message: "缺少生成提示词。" });
     if (!hasPrompt && mode === "image") issues.push({ severity: "warning", message: "未填写文字提示词，将完全依赖参考图生成。" });
     if (!model.trim()) issues.push({ severity: "error", message: "未选择可用模型。" });
-    if (mode === "video" && inputCount.image > resolveVideoReferenceImageLimit(model)) issues.push({ severity: "error", message: `当前视频模型最多支持 ${resolveVideoReferenceImageLimit(model)} 张参考图。` });
+    if (mode === "video") {
+        const referenceError = viduReferenceImageError(model, inputCount.image);
+        if (referenceError) issues.push({ severity: "error", message: referenceError });
+        else if (inputCount.image > resolveVideoReferenceImageLimit(model)) issues.push({ severity: "error", message: `当前视频模型最多支持 ${resolveVideoReferenceImageLimit(model)} 张参考图。` });
+    }
 
     const shotId = node.metadata?.shotId;
     if (shotId) {

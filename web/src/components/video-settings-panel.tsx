@@ -30,6 +30,12 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
+                {capabilities.description ? (
+                    <div className="space-y-1 text-xs leading-relaxed" style={{ color: theme.node.muted }}>
+                        <div>{capabilities.description}</div>
+                        <div>{capabilities.priceHint} · 按秒计费</div>
+                    </div>
+                ) : null}
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
                         {videoAspectRatioOptions.filter((item) => capabilities.supportedAspectRatios.includes(item.value)).map((item) => (
@@ -119,4 +125,3 @@ function SwitchRow({ label, checked, theme, onChange }: { label: string; checked
         </div>
     );
 }
-

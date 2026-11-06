@@ -4,7 +4,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isArkPlanBaseUrl, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { normalizeVideoAspectRatio, normalizeVideoDuration } from "@/lib/video-model-capabilities";
+import { isViduGatewayModel, isViduQ4VideoModel, normalizeVideoAspectRatio, normalizeVideoDuration, resolveVideoModelCapabilities, viduReferenceImageError } from "@/lib/video-model-capabilities";
 import { buildApiUrl, decodeChannelModel, encodeChannelModel, modelOptionName, proxyAntskUrl, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -58,10 +58,6 @@ function normalizeVideoModelId(model: string) {
     return modelOptionName(model).trim().toLowerCase();
 }
 
-function isViduGatewayModel(model: string) {
-    return model.includes("viduq3");
-}
-
 function isDoubaoOpenAiModel(model: string) {
     return model.includes("doubao-seedance") || model.includes("happyhorse");
 }
@@ -89,7 +85,8 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
     assertVideoTaskChannel(config, task);
     const delayMs = task.provider === "seedance" ? 5000 : 2500;
-    for (let attempt = 0; attempt < 120; attempt += 1) {
+    const maxAttempts = task.provider === "openai" && isViduGatewayModel(task.model) ? 720 : 120;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status === "completed") return state.result;
@@ -97,7 +94,7 @@ export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGen
             options?.onTaskFailed?.(task);
             throw new Error(state.error);
         }
-        if (attempt === 119) throw new Error(`${task.provider === "seedance" ? "Seedance " : ""}视频生成超时，请稍后重试`);
+        if (attempt === maxAttempts - 1) throw new Error(`${task.provider === "seedance" ? "Seedance " : ""}视频生成超时，请稍后重试`);
         await delay(delayMs, options?.signal);
     }
     throw new Error("视频生成超时，请稍后重试");
@@ -120,12 +117,12 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (!channel || !channel.models.includes(channelModel?.model || selectedModel)) throw new Error("视频模型所属渠道不存在，请重新选择模型渠道");
     const taskModel = encodeChannelModel(channel.id, channelModel?.model || selectedModel);
     const normalizedModel = normalizeVideoModelId(selectedModel);
+    if (isViduGatewayModel(normalizedModel)) {
+        if (videoReferences.length || audioReferences.length) throw new Error("Vidu 当前不支持参考视频或参考音频，请只保留参考图片");
+        return createViduGatewayTask(requestConfig, taskModel, prompt, references, options);
+    }
     if (shouldUseSeedanceTaskApi(requestConfig, normalizedModel)) {
         return createSeedanceTask(requestConfig, taskModel, prompt, references, videoReferences, audioReferences, options);
-    }
-    if (isViduGatewayModel(normalizedModel)) {
-        if (videoReferences.length || audioReferences.length) throw new Error("Vidu Q3 当前不支持参考视频或参考音频，请只保留参考图片");
-        return createViduGatewayTask(requestConfig, taskModel, prompt, references, options);
     }
     if (videoReferences.length || audioReferences.length) {
         throw new Error("当前视频接口不支持参考视频或参考音频，请移除参考素材后重试");
@@ -180,36 +177,41 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 }
 
 async function createViduGatewayTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const firstReference = references[0];
-    if (!firstReference) throw new Error("Vidu Q3 模型需要至少一张参考图作为首帧");
-    const targetSize = viduReferenceSize(normalizeVideoAspectRatio(config.size, model));
-    const [startImage, endImage] = await Promise.all([
-        imageToDataUrl(firstReference).then((image) => fitVideoReference(image, targetSize)),
-        references[1] ? imageToDataUrl(references[1]).then((image) => fitVideoReference(image, targetSize)) : Promise.resolve(""),
-    ]);
+    const referenceError = viduReferenceImageError(model, references.length);
+    if (referenceError) throw new Error(referenceError);
+    const capabilities = resolveVideoModelCapabilities(model);
+    const seconds = Number(config.videoSeconds);
+    if (!Number.isInteger(seconds) || !capabilities.supportedDurations.includes(seconds)) throw new Error(`Vidu 时长必须为 ${capabilities.supportedDurations[0]}-16 秒的整数`);
+    const text = prompt.trim();
+    if (!text) throw new Error("请输入视频提示词");
+    const isReferenceMode = references.length >= (isViduQ4VideoModel(model) ? 2 : 3);
+    const annotatedPrompt = isReferenceMode
+        ? `${references.map((image, index) => `[@${index + 1}]（图片${index + 1}）：${image.name || `参考图${index + 1}`}`).join("\n")}\n\n请按编号理解场景、角色、道具等参考图，不要混淆主体身份；此模式不强制首尾帧。\n\n${text}`
+        : text;
+    if (annotatedPrompt.length > 20000) throw new Error("Vidu 提示词不能超过 20000 个字符，请缩短后重试");
+    const images = await Promise.all(references.map(async (reference) => {
+        const image = await imageToDataUrl(reference);
+        if (!image.startsWith("data:image/")) throw new Error(`参考图片「${reference.name}」读取失败，请重新上传后再试`);
+        return image;
+    }));
     const payload = {
         model: modelOptionName(model),
-        prompt,
-        duration: normalizeVideoDuration(config.videoSeconds, model),
-        images: [startImage, endImage].filter(Boolean),
-        metadata: {
-            resolution: "1080p",
-            audio: true,
-            audio_type: "all",
-        },
+        prompt: annotatedPrompt,
+        seconds,
+        resolution: "720p",
+        audio: true,
+        aspect_ratio: normalizeVideoAspectRatio(config.size, model),
+        input_reference: images,
     };
+    if (new Blob([JSON.stringify(payload)]).size > 20 * 1024 * 1024) throw new Error("Vidu 请求体超过 20 MB，请压缩参考图片后重试");
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        if (isVideoTaskFailed(created.status || created.state)) throw new Error(extractApiErrorMessage(created.error) || extractApiErrorMessage(created) || "Vidu 视频任务创建失败");
         if (!created.id) throw new Error("Vidu 接口没有返回任务 ID");
         return { id: created.id, provider: "openai", model };
     } catch (error) {
         throw new Error(await readAxiosError(error, "Vidu 任务创建失败"));
     }
-}
-
-function viduReferenceSize(size: string) {
-    const [width, height] = (normalizeVideoSize(size) || "1280x720").split("x").map(Number);
-    return height > width ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
 }
 
 function videoReferenceSize(size: string) {
@@ -405,25 +407,26 @@ function normalizeVideoSize(value: string) {
 }
 
 function unwrapVideoResponse(payload: ApiVideoResponse) {
-    return unwrapEnvelope(payload, "接口没有返回视频任务");
+    return unwrapEnvelope<VideoResponse>(payload, "接口没有返回视频任务");
 }
 
 function unwrapSeedanceTask(payload: ApiEnvelope<SeedanceTask>) {
-    return unwrapEnvelope(payload, "Seedance 接口没有返回任务");
+    return unwrapEnvelope<SeedanceTask>(payload, "Seedance 接口没有返回任务");
 }
 
 function unwrapEnvelope<T>(payload: ApiEnvelope<T>, emptyMessage: string): T {
     if (!payload) throw new Error(emptyMessage);
-    if (isRecord(payload)) {
-        if (typeof payload.code === "number") {
-            if (payload.code !== 0) throw new Error(extractApiErrorMessage(payload) || "请求失败");
-            if (!payload.data) throw new Error(emptyMessage);
-            return payload.data as T;
+    const response: unknown = payload;
+    if (isRecord(response)) {
+        if (typeof response.code === "number") {
+            if (response.code !== 0) throw new Error(extractApiErrorMessage(response) || "请求失败");
+            if (!response.data) throw new Error(emptyMessage);
+            return response.data as T;
         }
-        if (payload.success === false) throw new Error(extractApiErrorMessage(payload) || "请求失败");
-        if (isRecord(payload.data)) {
-            const hasTaskFields = ["id", "task_id", "status", "state", "video_url", "videoUrl", "url", "content", "result", "output"].some((key) => key in payload);
-            return (hasTaskFields ? { ...payload, ...payload.data } : payload.data) as T;
+        if (response.success === false) throw new Error(extractApiErrorMessage(response) || "请求失败");
+        if (isRecord(response.data)) {
+            const hasTaskFields = ["id", "task_id", "status", "state", "video_url", "videoUrl", "url", "content", "result", "output"].some((key) => key in response);
+            return (hasTaskFields ? { ...response, ...response.data } : response.data) as T;
         }
     }
     return payload as T;
@@ -533,15 +536,15 @@ function delay(ms: number, signal?: AbortSignal) {
             reject(new DOMException("Aborted", "AbortError"));
             return;
         }
-        const timer = setTimeout(resolve, ms);
-        signal?.addEventListener(
-            "abort",
-            () => {
-                clearTimeout(timer);
-                reject(new DOMException("Aborted", "AbortError"));
-            },
-            { once: true },
-        );
+        const onAbort = () => {
+            clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+        };
+        const timer = setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, ms);
+        signal?.addEventListener("abort", onAbort, { once: true });
     });
 }
 
