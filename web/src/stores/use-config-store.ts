@@ -65,12 +65,12 @@ export const ANTSK_UPSTREAM_BASE_URL = "https://api.antsk.cn";
 export const ANTSK_BASE_URL = "/api/new-api/gateway";
 const DEFAULT_IMAGE_MODEL_NAME = "gemini-3-pro-image-preview";
 const DEFAULT_IMAGE_MODEL_NAMES = [DEFAULT_IMAGE_MODEL_NAME, "gemini-3.1-flash-image-preview", "gpt-image-2", "gpt-image-1.5"];
-const DEFAULT_VIDEO_MODEL_NAMES = ["sora-2", "veo_3_1-fast", "muse-video", "gemini-omni-1.2-flash", "viduq3-turbo", "viduq3-pro", "viduq4-preview", "doubao-seedance-2-0-fast", "doubao-seedance-2-0", "happyhorse-1.0", "happyhorse-1.1"];
+const DEFAULT_VIDEO_MODEL_NAMES = ["sora-2", "muse-video", "gemini-omni-1.2-flash", "viduq3-turbo", "viduq3-pro", "viduq4-preview", "doubao-seedance-2-0-fast", "doubao-seedance-2-0", "happyhorse-1.0", "happyhorse-1.1"];
 const DEFAULT_TEXT_MODEL_NAME = "gpt-5.6-terra";
 const DEFAULT_TEXT_MODEL_NAMES = ["gpt-5.6-terra", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4", "gpt-5.5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "gemini-3.8-flash"];
 const DEFAULT_AUDIO_MODEL_NAME = "gpt-audio-1.5";
 const DEFAULT_AUDIO_MODEL_NAMES = ["gpt-audio-1.5", "gpt-audio-mini"];
-const REMOVED_MODEL_NAMES = new Set(["gpt-5.1", "gpt-5.2", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7", "doubao-seedance-1-5-pro"]);
+const REMOVED_MODEL_NAMES = new Set(["gpt-5.1", "gpt-5.2", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7", "doubao-seedance-1-5-pro", "veo_3_1-fast"]);
 const LEGACY_IMAGE_DEFAULT_MODEL_NAMES = new Set(["gpt-image-2"]);
 const LEGACY_VIDEO_DEFAULT_MODEL_NAMES = new Set(["grok-imagine-video"]);
 const LEGACY_TEXT_DEFAULT_MODEL_NAMES = new Set(["gpt-5.4", "gpt-5.5"]);
@@ -107,10 +107,10 @@ export const defaultConfig: AiConfig = {
     videoWatermark: "false",
     systemPrompt: "",
     models: DEFAULT_CHANNEL_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
-    imageModels: DEFAULT_IMAGE_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
-    videoModels: DEFAULT_VIDEO_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
-    textModels: DEFAULT_TEXT_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
-    audioModels: DEFAULT_AUDIO_MODEL_NAMES.map((model) => encodeChannelModel("default", model)),
+    imageModels: DEFAULT_IMAGE_MODEL_NAMES.map((model) => encodeChannelModel("default", model)).sort(compareModelsByName),
+    videoModels: DEFAULT_VIDEO_MODEL_NAMES.map((model) => encodeChannelModel("default", model)).sort(compareModelsByName),
+    textModels: DEFAULT_TEXT_MODEL_NAMES.map((model) => encodeChannelModel("default", model)).sort(compareModelsByName),
+    audioModels: DEFAULT_AUDIO_MODEL_NAMES.map((model) => encodeChannelModel("default", model)).sort(compareModelsByName),
     quality: "medium",
     imageResolution: "1k",
     imageBackground: "",
@@ -169,12 +169,11 @@ export function modelMatchesCapability(model: string, capability?: ModelCapabili
 }
 
 export function filterModelsByCapability(models: string[], capability?: ModelCapability) {
-    return capability ? models.filter((model) => modelMatchesCapability(model, capability)) : models;
+    return models.filter((model) => !REMOVED_MODEL_NAMES.has(modelOptionName(model)) && modelMatchesCapability(model, capability)).sort(compareModelsByName);
 }
 
 export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability) {
-    if (!capability) return config.models;
-    return filterModelsByCapability(config[modelListKey(capability)], capability);
+    return filterModelsByCapability(capability ? config[modelListKey(capability)] : config.models, capability);
 }
 
 function modelListKey(capability: ModelCapability) {
@@ -435,11 +434,15 @@ function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
 }
 
 function uniqueRawModels(models: string[]) {
-    return Array.from(new Set((models || []).map((model) => modelOptionName(model).trim()).filter((model) => model && !REMOVED_MODEL_NAMES.has(model))));
+    return Array.from(new Set((models || []).map((model) => modelOptionName(model).trim()).filter((model) => model && !REMOVED_MODEL_NAMES.has(model)))).sort(compareModelsByName);
 }
 
 function uniqueModelOptions(models: string[]) {
-    return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)));
+    return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean))).sort(compareModelsByName);
+}
+
+function compareModelsByName(a: string, b: string) {
+    return modelOptionName(a).localeCompare(modelOptionName(b), "en", { numeric: true, sensitivity: "base" });
 }
 
 function ensureModelListIncludes(list: string[], channels: ModelChannel[], requiredModelNames: string[]) {

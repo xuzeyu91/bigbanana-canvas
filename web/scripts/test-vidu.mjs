@@ -37,11 +37,25 @@ const hooks = registerHooks({
 const originalAdapter = axios.defaults.adapter;
 const originalFetch = globalThis.fetch;
 const originalSetTimeout = globalThis.setTimeout;
+const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+const localStorageValues = new Map();
+Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+        getItem: (key) => localStorageValues.get(key) ?? null,
+        setItem: (key, value) => localStorageValues.set(key, String(value)),
+        removeItem: (key) => localStorageValues.delete(key),
+    },
+});
+Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: globalThis.localStorage } });
 globalThis.fetch = async (url) => { throw new Error(`Unexpected external request: ${url}`); };
 globalThis.setTimeout = (callback, ms, ...args) => originalSetTimeout(callback, ms === 2500 || ms === 5000 ? 0 : ms, ...args);
 
 try {
     const configApi = await import("@/stores/use-config-store");
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else delete globalThis.window;
     const api = await import("@/services/api/video");
     const capabilities = await import("@/lib/video-model-capabilities");
     const production = await import("@/app/(user)/canvas/utils/canvas-production");
@@ -377,10 +391,9 @@ try {
         assert.equal(getEventListeners(controller.signal, "abort").length, 0);
     });
 
-    await test("Sora, Veo and Seedance keep existing multipart behavior", async () => {
+    await test("Sora and Seedance keep existing multipart behavior", async () => {
         for (const [model, seconds, fields] of [
             ["sora-2", "4", ["model", "prompt", "seconds", "size"]],
-            ["veo_3_1-fast", "8", ["model", "prompt", "seconds", "size"]],
             ["doubao-seedance-2-0-fast", "5", ["model", "prompt", "seconds", "size"]],
         ]) {
             axios.defaults.adapter = async (request) => {
@@ -455,6 +468,49 @@ try {
     const videoReference = (index) => ({
         id: `video-${index}`, name: `镜头${index}.mp4`, type: "video/mp4",
         url: `data:video/mp4;base64,${Buffer.from(`offline-video-${index}`).toString("base64")}`,
+    });
+
+    await test("removed Veo Fast is excluded from defaults, selections and persisted channels", async () => {
+        const removed = selectedModel("veo_3_1-fast");
+        assert.ok(!defaultConfig.videoModels.includes(removed));
+        assert.ok(!defaultConfig.models.includes(removed));
+        assert.ok(!defaultConfig.channels[0].models.includes("veo_3_1-fast"));
+        assert.equal(configApi.normalizeModelOptionValue(removed, defaultConfig.channels), "");
+        assert.deepEqual(configApi.filterModelsByCapability([removed], "video"), []);
+        assert.deepEqual(configApi.filterModelsByCapability([removed]), []);
+        const persisted = structuredClone(defaultConfig);
+        persisted.channels[0].models.push("veo_3_1-fast");
+        persisted.models.push(removed);
+        persisted.videoModels.push(removed);
+        persisted.videoModel = removed;
+        const merged = configApi.useConfigStore.persist.getOptions().merge({ config: persisted }, configApi.useConfigStore.getState()).config;
+        assert.ok(!merged.models.includes(removed));
+        assert.ok(!merged.videoModels.includes(removed));
+        assert.ok(!merged.channels[0].models.includes("veo_3_1-fast"));
+        assert.equal(merged.videoModel, selectedModel("sora-2"));
+        await assert.rejects(() => api.createVideoGenerationTask(config("veo_3_1-fast"), "风筝"), /渠道不存在/);
+    });
+
+    await test("all model lists sort by model name, not channel IDs or selection order", () => {
+        const sorted = (models) => [...models].sort((a, b) => configApi.modelOptionName(a).localeCompare(configApi.modelOptionName(b), "en", { numeric: true, sensitivity: "base" }));
+        for (const key of ["models", "imageModels", "videoModels", "textModels", "audioModels"]) {
+            assert.deepEqual(defaultConfig[key], sorted(defaultConfig[key]));
+        }
+        assert.deepEqual(defaultConfig.channels[0].models, sorted(defaultConfig.channels[0].models));
+        assert.equal(defaultConfig.videoModel, selectedModel("sora-2"));
+        const channels = [
+            configApi.createModelChannel({ id: "z-channel", models: ["gpt-10", "gpt-2", "gemini-omni-1.2-flash"] }),
+            configApi.createModelChannel({ id: "a-channel", models: ["viduq4-preview", "muse-video"] }),
+        ];
+        const options = configApi.modelOptionsFromChannels(channels);
+        assert.deepEqual(options.map(configApi.modelOptionName), ["gemini-omni-1.2-flash", "gpt-2", "gpt-10", "muse-video", "viduq4-preview"]);
+        const input = [...options].reverse();
+        const cfg = { ...defaultConfig, models: input, videoModels: input };
+        assert.deepEqual(configApi.selectableModelsByCapability(cfg), sorted(input));
+        assert.deepEqual(configApi.selectableModelsByCapability(cfg, "video").map(configApi.modelOptionName), ["gemini-omni-1.2-flash", "muse-video", "viduq4-preview"]);
+        assert.deepEqual(input, [...options].reverse());
+        const currentFirst = [selectedModel("sora-2"), ...defaultConfig.videoModels.filter((model) => model !== selectedModel("sora-2"))];
+        assert.deepEqual(configApi.filterModelsByCapability(currentFirst, "video"), defaultConfig.videoModels);
     });
 
     await test("Muse and Omni are video models with per-request prices and documented limits", () => {
@@ -777,5 +833,9 @@ try {
     axios.defaults.adapter = originalAdapter;
     globalThis.fetch = originalFetch;
     globalThis.setTimeout = originalSetTimeout;
+    if (originalLocalStorage) Object.defineProperty(globalThis, "localStorage", originalLocalStorage);
+    else delete globalThis.localStorage;
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else delete globalThis.window;
     hooks.deregister();
 }

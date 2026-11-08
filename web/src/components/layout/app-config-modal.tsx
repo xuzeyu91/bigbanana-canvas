@@ -78,7 +78,7 @@ export function AppConfigModal() {
     const shouldPromptContinue = useConfigStore((state) => state.shouldPromptContinue);
     const setConfigDialogOpen = useConfigStore((state) => state.setConfigDialogOpen);
     const clearPromptContinue = useConfigStore((state) => state.clearPromptContinue);
-    const modelOptions = config.models.map((model) => ({ label: modelOptionLabel(config, model), value: model }));
+    const modelOptions = filterModelsByCapability(config.models).map((model) => ({ label: modelOptionLabel(config, model), value: model }));
     const modelOptionsByCapability = useMemo(
         () =>
             modelGroups.reduce(

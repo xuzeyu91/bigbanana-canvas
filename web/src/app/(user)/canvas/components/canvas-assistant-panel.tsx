@@ -6,7 +6,7 @@ import { Bot, Copy, Cpu, History, PanelRightClose, Plus, Settings2, Trash2, X } 
 import { Button, Modal, Segmented, Switch, Tooltip } from "antd";
 import { motion } from "motion/react";
 
-import { modelMatchesCapability, modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { filterModelsByCapability, modelMatchesCapability, modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { nanoid } from "nanoid";
 import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ResponseToolCall } from "@/services/api/image";
@@ -730,7 +730,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
 
 function AgentTextModelPicker({ config, value, onChange }: { config: AiConfig; value: string; onChange: (model: string) => void }) {
     const options = useMemo(
-        () => Array.from(new Set([...(modelMatchesCapability(value, "text") ? [value] : []), ...selectableModelsByCapability(config, "text")].filter(Boolean))),
+        () => filterModelsByCapability(Array.from(new Set([...(modelMatchesCapability(value, "text") ? [value] : []), ...selectableModelsByCapability(config, "text")].filter(Boolean))), "text"),
         [config, value],
     );
     const current = modelMatchesCapability(value, "text") ? value : options[0] || "";
