@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Download, Eraser, FolderOpen, Grid2x2, Hand, Image as ImageIcon, Info, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { CircleDot, Download, Eraser, Focus, FolderOpen, Grid2x2, Hand, Image as ImageIcon, Info, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -24,6 +24,7 @@ export function CanvasToolbar({
     onRedo,
     onUpload,
     onExportSelected,
+    onFocusSelected,
     onDelete,
     onClear,
     onCanvasToolChange,
@@ -46,6 +47,7 @@ export function CanvasToolbar({
     onRedo: () => void;
     onUpload: () => void;
     onExportSelected: () => void;
+    onFocusSelected: () => void;
     onDelete: () => void;
     onClear: () => void;
     onCanvasToolChange: (tool: CanvasTool) => void;
@@ -67,7 +69,7 @@ export function CanvasToolbar({
     const tip = hovered ? toolLabel(hovered) : "";
 
     return (
-        <div className="pointer-events-none absolute bottom-5 z-50 flex justify-center" style={{ left: 300, right: 16 }}>
+        <div data-canvas-occlusion="bottom" className="pointer-events-none absolute bottom-5 z-50 flex justify-center" style={{ left: 300, right: 16 }}>
             {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
             <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex h-14 max-w-full items-center gap-1 overflow-x-auto rounded-xl border px-2 shadow-lg backdrop-blur [&>*]:shrink-0" style={dockStyle}>
                 <ToolbarButton
@@ -133,6 +135,9 @@ export function CanvasToolbar({
                 {selectedCount ? (
                     <>
                         <Divider theme={theme} />
+                        <ToolbarButton id="tool-focus" label="聚焦所选" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onFocusSelected}>
+                            <Focus className="size-4.5" />
+                        </ToolbarButton>
                         <ToolbarButton id="tool-export" label="导出选中元素" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onExportSelected}>
                             <Download className="size-4.5" />
                         </ToolbarButton>
@@ -304,6 +309,7 @@ function toolLabel(id: string) {
     if (id === "tool-upload") return "上传素材";
     if (id === "tool-assets") return "我的素材";
     if (id === "tool-style") return "画布外观";
+    if (id === "tool-focus") return "聚焦所选";
     if (id === "tool-export") return "导出选中元素";
     if (id === "tool-delete") return "删除选中";
     if (id === "tool-clear") return "清空画布";

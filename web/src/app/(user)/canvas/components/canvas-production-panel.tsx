@@ -48,7 +48,7 @@ export function CanvasProductionPanel({ open, nodes, selectedNodeIds, onClose, o
     };
 
     return (
-        <aside data-canvas-no-zoom className="pointer-events-auto absolute bottom-4 right-4 top-[72px] z-[80] flex w-[344px] flex-col overflow-hidden rounded-2xl border backdrop-blur-xl" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}>
+        <aside data-canvas-no-zoom data-canvas-occlusion="right" className="pointer-events-auto absolute bottom-4 right-4 top-[72px] z-[80] flex w-[344px] flex-col overflow-hidden rounded-2xl border backdrop-blur-xl" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}>
             <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: theme.toolbar.border }}>
                 <div className="flex items-center gap-2">
                     <span className="grid size-7 place-items-center rounded-lg" style={{ background: theme.toolbar.activeBg, color: theme.toolbar.activeText }}><Clapperboard className="size-4" /></span>

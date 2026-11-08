@@ -1,4 +1,4 @@
-import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -24,8 +24,7 @@ export const seedanceRatioOptions = [
 export const seedanceDurationOptions = [-1, 4, 5, 6, 8, 10, 12, 15] as const;
 
 export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "baseUrl">) {
-    const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.videoModel) : config;
-    return isSeedanceVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel)) || isArkPlanBaseUrl(requestConfig.baseUrl);
+    return isSeedanceVideoModel(modelOptionName(config.model || config.videoModel)) || isArkPlanBaseUrl(config.baseUrl);
 }
 
 export function isSeedanceVideoModel(model: string) {

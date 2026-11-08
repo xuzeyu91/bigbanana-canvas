@@ -5,7 +5,7 @@ import { ArrowUp, Expand, LoaderCircle, Sparkles, Square } from "lucide-react";
 import { App, Button, Modal } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, modelRequestConfigError, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -35,7 +35,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const { message } = App.useApp();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const mode = defaultMode(node.type);
     const config = buildNodeConfig(globalConfig, node, mode);
@@ -67,9 +66,12 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const optimizePrompt = async () => {
         const rawPrompt = prompt.trim();
         if (!rawPrompt || optimizing || isRunning) return;
-        const optimizeModel = resolveNodeModelByMode(node.metadata, "text") || globalConfig.textModel || globalConfig.model || defaultConfig.textModel;
+        const selectedOptimizeModel = resolveNodeModelByMode(node.metadata, "text") || globalConfig.textModel || globalConfig.model || defaultConfig.textModel;
+        const optimizeModel = resolveModelForCapability(globalConfig, selectedOptimizeModel, globalConfig.textModel || defaultConfig.textModel, "text");
         const optimizeConfig: AiConfig = { ...config, model: optimizeModel, textModel: optimizeModel };
-        if (!isAiConfigReady(optimizeConfig, optimizeModel)) {
+        const configError = modelRequestConfigError(optimizeConfig, optimizeModel, "text");
+        if (configError) {
+            message.error(configError);
             openConfigDialog(true);
             return;
         }
@@ -234,7 +236,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
     const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
     return {
         ...globalConfig,
-        model: resolveNodeModelByMode(node.metadata, mode) || defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model),
+        model: resolveModelForCapability(globalConfig, resolveNodeModelByMode(node.metadata, mode), defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model), mode),
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         imageResolution: node.metadata?.imageResolution || globalConfig.imageResolution || defaultConfig.imageResolution,
         imageBackground: node.metadata?.imageBackground || globalConfig.imageBackground || defaultConfig.imageBackground,

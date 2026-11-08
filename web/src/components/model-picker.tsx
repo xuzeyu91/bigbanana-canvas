@@ -5,7 +5,7 @@ import { Cpu } from "lucide-react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { filterModelsByCapability, modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { filterModelsByCapability, modelOptionLabel, modelOptionName, modelSelectionError, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 type ModelPickerProps = {
     config: AiConfig;
@@ -21,7 +21,7 @@ type ModelPickerProps = {
 export function ModelPicker({ config, value, onChange, capability, className, fullWidth = false, placeholder = "选择模型", onMissingConfig }: ModelPickerProps) {
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const options = useMemo(() => filterModelsByCapability(Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))), capability), [capability, config, value]);
+    const options = useMemo(() => Array.from(new Set([...(value ? [value] : []), ...selectableModelsByCapability(config, capability)])).filter((model) => model === value || filterModelsByCapability([model], capability).length > 0), [capability, config, value]);
     const current = value || "";
 
     useEffect(() => {
@@ -70,7 +70,7 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
                 {options.length ? (
                     options.map((model) => (
                         <SelectItem key={model} value={model} textValue={modelOptionLabel(config, model)}>
-                            <ModelLabel config={config} model={model} />
+                            <ModelLabel config={config} model={model} capability={capability} />
                         </SelectItem>
                     ))
                 ) : (
@@ -89,13 +89,18 @@ function emptyModelLabel(config: AiConfig, capability?: ModelCapability) {
     return config.models.length ? `暂无匹配的${label}模型` : "请先到配置里添加渠道和模型";
 }
 
-function ModelLabel({ config, model }: { config: AiConfig; model: string }) {
+function ModelLabel({ config, model, capability }: { config: AiConfig; model: string; capability?: ModelCapability }) {
+    const invalid = modelSelectionError(config, model) || (capability && !modelMatchesCapability(model, capability));
     return (
         <span className="flex min-w-0 items-center gap-2">
             <ModelIcon model={model} />
-            <span className="truncate">{modelOptionLabel(config, model)}</span>
+            <span className="truncate">{invalid ? `${modelOptionLabel(config, model)}（不可用）` : modelOptionLabel(config, model)}</span>
         </span>
     );
+}
+
+function modelMatchesCapability(model: string, capability?: ModelCapability) {
+    return !capability || filterModelsByCapability([model], capability).length > 0;
 }
 
 function ModelIcon({ model }: { model: string }) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } from "antd";
+import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Switch, Tabs } from "antd";
 import { Cloud, RefreshCw, Wifi } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -352,6 +352,9 @@ export function AppConfigModal() {
                                 </Form.Item>
                                 <Form.Item label="系统提示词" className="mb-0">
                                     <Input.TextArea rows={4} value={config.systemPrompt} placeholder="例如：你是一位擅长电影感写实摄影的视觉导演。" onChange={(event) => updateConfig("systemPrompt", event.target.value)} />
+                                </Form.Item>
+                                <Form.Item label="原地重生成" extra="启用后，从已有图片、视频、文本或音频节点重新生成时会替换该节点内容；失败或取消会保留原结果。" className="mb-0 mt-4">
+                                    <Switch checked={config.regenerateExistingNode} onChange={(value) => updateConfig("regenerateExistingNode", value)} />
                                 </Form.Item>
                             </Form>
                         ),

@@ -31,6 +31,7 @@ export type AiConfig = {
     audioFormat: string;
     audioSpeed: string;
     audioInstructions: string;
+    regenerateExistingNode: boolean;
     videoSeconds: string;
     videoMode: string;
     videoGenerateAudio: string;
@@ -72,7 +73,7 @@ const DEFAULT_AUDIO_MODEL_NAME = "gpt-audio-1.5";
 const DEFAULT_AUDIO_MODEL_NAMES = ["gpt-audio-1.5", "gpt-audio-mini"];
 const REMOVED_MODEL_NAMES = new Set(["gpt-5.1", "gpt-5.2", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7", "doubao-seedance-1-5-pro", "veo_3_1-fast"]);
 const LEGACY_IMAGE_DEFAULT_MODEL_NAMES = new Set(["gpt-image-2"]);
-const LEGACY_VIDEO_DEFAULT_MODEL_NAMES = new Set(["grok-imagine-video"]);
+const LEGACY_VIDEO_DEFAULT_MODEL_NAMES = new Set(["grok-imagine-video", "veo_3_1-fast"]);
 const LEGACY_TEXT_DEFAULT_MODEL_NAMES = new Set(["gpt-5.4", "gpt-5.5"]);
 const LEGACY_AUDIO_DEFAULT_MODEL_NAMES = new Set(["gpt-4o-mini-tts"]);
 const DEFAULT_CHANNEL_MODEL_NAMES = uniqueRawModels([...DEFAULT_VIDEO_MODEL_NAMES, ...DEFAULT_IMAGE_MODEL_NAMES, ...DEFAULT_TEXT_MODEL_NAMES, ...DEFAULT_AUDIO_MODEL_NAMES]);
@@ -101,6 +102,7 @@ export const defaultConfig: AiConfig = {
     audioFormat: "mp3",
     audioSpeed: "1",
     audioInstructions: "",
+    regenerateExistingNode: false,
     videoSeconds: "8",
     videoMode: "first_frame",
     videoGenerateAudio: "true",
@@ -135,7 +137,7 @@ type ConfigStore = {
     shouldPromptContinue: boolean;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
-    isAiConfigReady: (config: AiConfig, model: string) => boolean;
+    isAiConfigReady: (config: AiConfig, model: string, capability?: ModelCapability) => boolean;
     openConfigDialog: (shouldPromptContinue?: boolean) => void;
     setConfigDialogOpen: (isOpen: boolean) => void;
     clearPromptContinue: () => void;
@@ -180,9 +182,38 @@ function modelListKey(capability: ModelCapability) {
     return `${capability}Models` as "imageModels" | "videoModels" | "textModels" | "audioModels";
 }
 
-function isAiConfigReady(config: AiConfig, model: string) {
+export function modelSelectionError(config: AiConfig, value: string) {
+    const selected = value.trim();
+    if (!selected) return "尚未选择模型，请先选择一个可用模型。";
+    const decoded = decodeChannelModel(selected);
+    if (decoded) {
+        const channel = config.channels.find((item) => item.id === decoded.channelId);
+        if (!channel) return `模型“${decoded.model}”所属渠道已删除，请修复渠道配置或明确选择其他模型。`;
+        if (!channel.models.includes(decoded.model)) return `渠道“${channel.name}”中已找不到模型“${decoded.model}”，请修复模型列表或明确选择其他模型。`;
+        return "";
+    }
+    const matches = config.channels.filter((channel) => channel.models.includes(selected));
+    if (!matches.length) return `模型“${selected}”已不在任何渠道中，请修复模型列表或明确选择其他模型。`;
+    if (matches.length > 1) return `模型“${selected}”存在于多个渠道，请从模型列表中明确选择对应渠道。`;
+    return "";
+}
+
+export function modelRequestConfigError(config: AiConfig, model: string, capability?: ModelCapability) {
+    const selectionError = modelSelectionError(config, model);
+    if (selectionError) return selectionError;
     const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+    if (capability && !modelMatchesCapability(model, capability)) return `模型“${modelOptionName(model)}”不支持${capabilityLabel(capability)}生成，请明确选择匹配的模型。`;
+    if (!channel.baseUrl.trim()) return `渠道“${channel.name}”缺少 Base URL，请修复渠道配置后重试。`;
+    if (!channel.apiKey.trim()) return `渠道“${channel.name}”未配置 API Key，请先配置 Key 后重试。`;
+    return "";
+}
+
+function capabilityLabel(capability: ModelCapability) {
+    return capability === "image" ? "图片" : capability === "video" ? "视频" : capability === "audio" ? "音频" : "文本";
+}
+
+function isAiConfigReady(config: AiConfig, model: string, capability?: ModelCapability) {
+    return !modelRequestConfigError(config, model, capability);
 }
 
 export const useConfigStore = create<ConfigStore>()(
@@ -206,7 +237,7 @@ export const useConfigStore = create<ConfigStore>()(
                         [key]: value,
                     },
                 })),
-            isAiConfigReady: (config, model) => isAiConfigReady(config, model),
+            isAiConfigReady: (config, model, capability) => isAiConfigReady(config, model, capability),
             openConfigDialog: (shouldPromptContinue = false) => set({ isConfigOpen: true, shouldPromptContinue }),
             setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
             clearPromptContinue: () => set({ shouldPromptContinue: false }),
@@ -336,9 +367,11 @@ export function modelOptionName(value: string) {
 
 export function modelOptionLabel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
-    if (!decoded) return value;
+    if (!decoded) return modelSelectionError(config, value) ? `${value}（模型不可用）` : value;
     const channel = config.channels.find((item) => item.id === decoded.channelId);
-    return channel?.name.trim().toLowerCase() === "bigbanana api" ? decoded.model : channel ? `${decoded.model}（${channel.name}）` : decoded.model;
+    if (!channel) return `${decoded.model}（渠道已删除）`;
+    if (!channel.models.includes(decoded.model)) return `${decoded.model}（模型已删除）`;
+    return channel.name.trim().toLowerCase() === "bigbanana api" ? decoded.model : `${decoded.model}（${channel.name}）`;
 }
 
 export function modelOptionsFromChannels(channels: ModelChannel[]) {
@@ -355,20 +388,25 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
         return channel && channel.models.includes(decoded.model) ? model : "";
     }
     const normalizedModel = model;
-    const channel = channels.find((item) => item.models.includes(normalizedModel)) || channels[0];
+    const matches = channels.filter((item) => item.models.includes(normalizedModel));
+    if (matches.length > 1) return "";
+    const channel = matches[0];
     return channel && channel.models.includes(normalizedModel) ? encodeChannelModel(channel.id, normalizedModel) : model;
 }
 
 export function resolveModelChannel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
-    const model = decoded?.model || value;
-    const matched = decoded ? config.channels.find((channel) => channel.id === decoded.channelId) : config.channels.find((channel) => channel.models.includes(model));
-    return matched || config.channels[0] || createModelChannel({ id: "default", name: "BigBanana API", baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName) });
+    const error = modelSelectionError(config, value);
+    if (error) throw new Error(error);
+    return decoded ? config.channels.find((channel) => channel.id === decoded.channelId)! : config.channels.find((channel) => channel.models.includes(value))!;
 }
 
-export function resolveModelRequestConfig(config: AiConfig, value: string) {
-    const channel = resolveModelChannel(config, value);
-    const model = modelOptionName(value || config.model);
+export function resolveModelRequestConfig(config: AiConfig, value: string, capability?: ModelCapability) {
+    const selectedModel = value || config.model;
+    const error = modelRequestConfigError(config, selectedModel, capability);
+    if (error) throw new Error(error);
+    const channel = resolveModelChannel(config, selectedModel);
+    const model = modelOptionName(selectedModel);
     return {
         ...config,
         model,
@@ -376,6 +414,11 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         apiKey: channel.apiKey,
         apiFormat: inferApiFormatByModel(model, channel.apiFormat),
     };
+}
+
+export function resolveModelForCapability(config: AiConfig, selectedModel: string, fallbackModel: string, capability: ModelCapability) {
+    if (!selectedModel || modelSelectionError(config, selectedModel)) return selectedModel || fallbackModel;
+    return modelMatchesCapability(selectedModel, capability) ? selectedModel : fallbackModel;
 }
 
 function inferApiFormatByModel(model: string, fallback: ApiCallFormat): ApiCallFormat {
@@ -454,11 +497,15 @@ function ensureModelListIncludes(list: string[], channels: ModelChannel[], requi
 
 function normalizeDefaultModelSelection(value: string | undefined, channels: ModelChannel[], fallbackModelName: string, legacyDefaults?: Set<string>, capability?: ModelCapability) {
     const matchesCapability = (model: string) => !capability || modelMatchesCapability(model, capability);
-    const current = normalizeModelOptionValue(value, channels);
-    if (current && !legacyDefaults?.has(modelOptionName(current)) && matchesCapability(current)) return current;
     const fallback = normalizeModelOptionValue(fallbackModelName, channels);
-    if (fallback && matchesCapability(fallback)) return fallback;
-    return current && matchesCapability(current) ? current : "";
+    const raw = value?.trim() || "";
+    const current = normalizeModelOptionValue(raw, channels);
+    if (legacyDefaults?.has(modelOptionName(raw))) return fallback && matchesCapability(fallback) ? fallback : raw;
+    if (!raw) return fallback && matchesCapability(fallback) ? fallback : "";
+    if (!current) return REMOVED_MODEL_NAMES.has(modelOptionName(raw)) && fallback && matchesCapability(fallback) ? fallback : raw;
+    if (current === raw && !isChannelModelValue(raw)) return raw;
+    if (!matchesCapability(current)) return fallback && matchesCapability(fallback) ? fallback : current;
+    return current;
 }
 
 export function buildApiUrl(baseUrl: string, path: string) {

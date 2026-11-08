@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import copyToClipboard from "copy-to-clipboard";
 import { Bot, Copy, Cpu, History, PanelRightClose, Plus, Settings2, Trash2, X } from "lucide-react";
-import { Button, Modal, Segmented, Switch, Tooltip } from "antd";
+import { App, Button, Modal, Segmented, Switch, Tooltip } from "antd";
 import { motion } from "motion/react";
 
-import { filterModelsByCapability, modelMatchesCapability, modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { filterModelsByCapability, modelMatchesCapability, modelOptionLabel, modelOptionName, modelRequestConfigError, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { nanoid } from "nanoid";
 import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ResponseToolCall } from "@/services/api/image";
@@ -163,11 +163,11 @@ type CanvasAssistantPanelProps = {
 };
 
 export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, sessions, activeSessionId, onSelectNodeIds, onSessionsChange, onApplyOps, canUndoOps, onUndoOps, onPasteImage, agentMode, onAgentModeChange, closing, onCollapse }: CanvasAssistantPanelProps) {
+    const { message } = App.useApp();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const user = useUserStore((state) => state.user);
     const effectiveConfig = useEffectiveConfig();
     const cleanupImages = useAssetStore((state) => state.cleanupImages);
-    const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const confirmTools = useCanvasAgentStore((state) => state.confirmTools);
@@ -273,7 +273,9 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
 
     const sendMessage = async (text: string, history: CanvasAssistantMessage[], savedReferences?: CanvasAssistantReference[]) => {
         const requestConfig = { ...effectiveConfig, model: effectiveConfig.textModel || effectiveConfig.model };
-        if (!isAiConfigReady(requestConfig, requestConfig.model)) {
+        const configError = modelRequestConfigError(requestConfig, requestConfig.model, "text");
+        if (configError) {
+            message.error(configError);
             openConfigDialog(true);
             return;
         }

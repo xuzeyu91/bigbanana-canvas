@@ -889,7 +889,7 @@ export function requestGeneration(config: AiConfig, prompt: string, options?: Re
 }
 
 async function requestGenerationWithSignal(config: AiConfig, prompt: string, options?: RequestOptions) {
-    const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel, "image");
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const resolution = normalizeImageResolution(config.imageResolution, requestConfig.model);
     const size = normalizeImageAspectRatio(config.size, requestConfig.model, resolution);
@@ -934,7 +934,7 @@ export function requestEdit(config: AiConfig, prompt: string, references: Refere
 }
 
 async function requestEditWithSignal(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
-    const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel, "image");
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
     const resolution = normalizeImageResolution(config.imageResolution, requestConfig.model);
@@ -979,7 +979,7 @@ async function requestEditWithSignal(config: AiConfig, prompt: string, reference
 }
 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
-    const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel, "text");
     try {
         if (requestConfig.apiFormat === "gemini") {
             const answer = (await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages), onDelta, options)).content || "没有返回内容";
@@ -998,7 +998,7 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
 }
 
 export async function requestToolResponse(config: AiConfig, messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice = "auto", onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel, "text");
     try {
         if (requestConfig.apiFormat === "gemini") {
             return await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options);

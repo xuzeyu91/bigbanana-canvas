@@ -22,7 +22,7 @@ export function CanvasZoomControls({ scale, onScaleChange, onReset, isMiniMapOpe
     const activeStyle = { background: theme.toolbar.activeBg, color: theme.toolbar.activeText };
 
     return (
-        <div className="absolute bottom-5 left-5 z-50" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+        <div data-canvas-occlusion="bottom" className="absolute bottom-5 left-5 z-50" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
             <div className="flex h-14 items-center gap-1 rounded-xl border px-2 shadow-lg backdrop-blur" style={dockStyle}>
                 <Tooltip title={isMiniMapOpen ? "关闭小地图" : "打开小地图"}>
                     <Button
@@ -40,7 +40,7 @@ export function CanvasZoomControls({ scale, onScaleChange, onReset, isMiniMapOpe
                 <Tooltip title="放大/缩小画布">
                     <input
                         type="range"
-                        min="5"
+                        min="1"
                         max="500"
                         step="1"
                         value={Math.round(scale * 100)}

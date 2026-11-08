@@ -103,16 +103,12 @@ export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGen
 }
 
 function assertVideoTaskChannel(config: AiConfig, task: VideoGenerationTask) {
-    const decoded = decodeChannelModel(task.model);
-    const model = decoded?.model || task.model;
-    const channel = decoded ? config.channels.find((item) => item.id === decoded.channelId) : config.channels.find((item) => item.models.includes(model));
-    if (!channel || !channel.models.includes(model)) throw new Error("视频任务所属模型渠道不存在，请恢复原渠道配置后重试");
-    if (!channel.apiKey.trim()) throw new Error("视频任务所属模型渠道未配置 API Key，请配置后重试");
+    resolveModelRequestConfig(config, task.model, "video");
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
-    const requestConfig = resolveModelRequestConfig(config, selectedModel);
+    const requestConfig = resolveModelRequestConfig(config, selectedModel, "video");
     assertVideoConfig(requestConfig, requestConfig.model);
     const channelModel = decodeChannelModel(selectedModel);
     const channel = channelModel ? config.channels.find((item) => item.id === channelModel.channelId) : resolveModelChannel(config, selectedModel);
@@ -136,7 +132,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
-    const requestConfig = resolveModelRequestConfig(config, task.model);
+    const requestConfig = resolveModelRequestConfig(config, task.model, "video");
     assertVideoConfig(requestConfig, requestConfig.model);
     return task.provider === "seedance" ? pollSeedanceTask(requestConfig, task, options) : pollOpenAIVideoTask(requestConfig, task, options);
 }
