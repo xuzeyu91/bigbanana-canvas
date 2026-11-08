@@ -11,8 +11,8 @@ import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audi
 import { requestVideoGeneration, resumeVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
 import { bootstrapNewApiSession } from "@/services/new-api-service";
 import { defaultConfig, modelRequestConfigError, resolveModelForCapability, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
-import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
+import { deleteStoredImages, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
@@ -2427,23 +2427,30 @@ function InfiniteCanvasPage() {
                                     ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, { signal: controller.signal }).then((items) => items[0])
                                     : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
                                 const uploaded = await uploadImage(image.dataUrl);
-                                if (controller.signal.aborted) throw new Error("请求已取消");
+                                if (controller.signal.aborted) {
+                                    await deleteStoredImages([uploaded.storageKey]).catch(() => undefined);
+                                    throw new Error("请求已取消");
+                                }
                                 prepareRegeneratedNodeHistory();
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                                 setNodes((prev) => {
                                     const root = prev.find((node) => node.id === rootId);
+                                    const childIds = root?.metadata?.batchChildIds || [];
+                                    const primaryImageId = childIds.includes(root?.metadata?.primaryImageId || "") ? root?.metadata?.primaryImageId : childIds[0];
                                     return prev.map((node) => {
-                                        if (node.id !== targetId && node.id !== rootId) return node;
+                                        const updateBatchPrimary = targetId === rootId && Boolean(root?.metadata?.isBatchRoot) && node.id === primaryImageId;
+                                        const updateBatchRoot = node.id === rootId && (targetId === rootId || root?.metadata?.primaryImageId === targetId || !root?.metadata?.primaryImageId);
+                                        if (node.id !== targetId && !updateBatchRoot && !updateBatchPrimary) return node;
                                         const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
-                                        if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
+                                        if (updateBatchRoot)
                                             return {
                                                 ...node,
                                                 position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                                 width: imageSize.width,
                                                 height: imageSize.height,
-                                                metadata: { ...node.metadata, ...imageMetadata(uploaded), primaryImageId: targetId },
+                                                metadata: { ...node.metadata, ...imageMetadata(uploaded), primaryImageId: targetId === rootId ? primaryImageId : targetId },
                                             };
-                                        if (node.id === targetId)
+                                        if (node.id === targetId || updateBatchPrimary)
                                             return {
                                                 ...node,
                                                 position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
@@ -2524,7 +2531,10 @@ function InfiniteCanvasPage() {
                                 onTaskFailed: () => setNodes((current) => current.map((item) => (item.id === videoId ? { ...item, metadata: { ...item.metadata, videoTaskId: undefined, videoTaskProvider: undefined, videoTaskModel: undefined } } : item))),
                             }),
                         );
-                        if (controller.signal.aborted) throw new Error("请求已取消");
+                        if (controller.signal.aborted) {
+                            if (video.storageKey) await deleteStoredMedia([video.storageKey]).catch(() => undefined);
+                            throw new Error("请求已取消");
+                        }
                         prepareRegeneratedNodeHistory();
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, width: videoSize.width, height: videoSize.height, position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 }, metadata: { ...node.metadata, ...videoMetadata(video), prompt: effectivePrompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, videoMode: generationConfig.videoMode, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls(generationContext), videoTaskId: undefined, videoTaskProvider: undefined, videoTaskModel: undefined } } : node)));
@@ -2556,7 +2566,10 @@ function InfiniteCanvasPage() {
                     const controller = startGenerationRequest(audioId, nodeId, nodeId, runController);
                     try {
                         const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, effectivePrompt, { signal: controller.signal }), generationConfig.audioFormat);
-                        if (controller.signal.aborted) throw new Error("请求已取消");
+                        if (controller.signal.aborted) {
+                            if (audio.storageKey) await deleteStoredMedia([audio.storageKey]).catch(() => undefined);
+                            throw new Error("请求已取消");
+                        }
                         prepareRegeneratedNodeHistory();
                         setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), prompt: effectivePrompt, ...buildAudioGenerationMetadata(generationConfig) } } : node)));
                         generationRecordStatus = "success";

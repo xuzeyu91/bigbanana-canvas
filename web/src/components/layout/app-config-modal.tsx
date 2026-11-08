@@ -10,7 +10,7 @@ import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
-import { ANTSK_BASE_URL, ANTSK_UPSTREAM_BASE_URL, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, normalizeModelOptionValue, useConfigStore, type AiConfig, type ApiCallFormat, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { ANTSK_BASE_URL, ANTSK_UPSTREAM_BASE_URL, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, modelSelectionError, normalizeModelOptionValue, useConfigStore, type AiConfig, type ApiCallFormat, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -111,7 +111,8 @@ export function AppConfigModal() {
             if (!hasSameModels(filteredModels, config[group.modelsKey])) {
                 updateConfig(group.modelsKey, filteredModels);
             }
-            const normalizedDefault = filteredModels.includes(config[group.modelKey]) ? config[group.modelKey] : filteredModels[0] || "";
+            const selectedModel = config[group.modelKey];
+            const normalizedDefault = modelSelectionError(config, selectedModel) ? selectedModel : filteredModels.includes(selectedModel) ? selectedModel : filteredModels[0] || "";
             if (normalizedDefault !== config[group.modelKey]) {
                 updateConfig(group.modelKey, normalizedDefault);
             }
@@ -427,13 +428,13 @@ export function AppConfigModal() {
 
 function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
     const models = modelOptionsFromChannels(channels);
+    const nextConfig = { ...config, channels };
     const imageModels = keepOrSuggest(config.imageModels, filterModelsByCapability(models, "image"));
     const videoModels = keepOrSuggest(config.videoModels, filterModelsByCapability(models, "video"));
     const textModels = keepOrSuggest(config.textModels, filterModelsByCapability(models, "text"));
     const audioModels = keepOrSuggest(config.audioModels, filterModelsByCapability(models, "audio"));
     return {
-        ...config,
-        channels,
+        ...nextConfig,
         models,
         baseUrl: channels[0]?.baseUrl || config.baseUrl,
         apiKey: channels[0]?.apiKey || config.apiKey,
@@ -442,10 +443,10 @@ function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
         videoModels,
         textModels,
         audioModels,
-        imageModel: normalizeDefaultModel(config.imageModel, imageModels),
-        videoModel: normalizeDefaultModel(config.videoModel, videoModels),
-        textModel: normalizeDefaultModel(config.textModel, textModels),
-        audioModel: normalizeDefaultModel(config.audioModel, audioModels),
+        imageModel: modelSelectionError(nextConfig, config.imageModel) ? config.imageModel : normalizeDefaultModel(config.imageModel, imageModels),
+        videoModel: modelSelectionError(nextConfig, config.videoModel) ? config.videoModel : normalizeDefaultModel(config.videoModel, videoModels),
+        textModel: modelSelectionError(nextConfig, config.textModel) ? config.textModel : normalizeDefaultModel(config.textModel, textModels),
+        audioModel: modelSelectionError(nextConfig, config.audioModel) ? config.audioModel : normalizeDefaultModel(config.audioModel, audioModels),
     };
 }
 
