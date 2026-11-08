@@ -51,16 +51,7 @@ const GEMINI_FLASH_CAPABILITIES: ImageModelCapabilities = {
     variantModels: { "1k": "gemini-3.1-flash-image-preview", "2k": "gemini-3.1-flash-image-preview-2k", "4k": "gemini-3.1-flash-image-preview-4k" },
 };
 
-const GPT_IMAGE_1_5_CAPABILITIES: ImageModelCapabilities = {
-    provider: "openai",
-    supportsQuality: true,
-    defaultResolution: "1k",
-    supportedResolutions: ["1k"],
-    supportedAspectRatios: { "1k": GPT_RATIOS, "2k": [], "4k": [] },
-    outputSizes: { "1k": { "16:9": "1536x1024", "9:16": "1024x1536", "1:1": "1024x1024" } },
-};
-
-const GPT_IMAGE_2_CAPABILITIES: ImageModelCapabilities = {
+const GPT_IMAGE_2_PLUS_CAPABILITIES: ImageModelCapabilities = {
     provider: "openai",
     supportsQuality: true,
     defaultResolution: "1k",
@@ -85,8 +76,7 @@ export function resolveImageModelCapabilities(model: string): ImageModelCapabili
     const name = modelOptionName(model).trim().toLowerCase().replace(/-(?:2k|4k)$/, "");
     if (name === "gemini-3-pro-image-preview") return GEMINI_PRO_CAPABILITIES;
     if (name === "gemini-3.1-flash-image-preview") return GEMINI_FLASH_CAPABILITIES;
-    if (name === "gpt-image-2") return GPT_IMAGE_2_CAPABILITIES;
-    if (name === "gpt-image-1.5") return GPT_IMAGE_1_5_CAPABILITIES;
+    if (["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"].includes(name)) return GPT_IMAGE_2_PLUS_CAPABILITIES;
     return GENERIC_CAPABILITIES;
 }
 
