@@ -13,5 +13,3 @@ description: 当前提示词中心使用的案例与封面数据来源
 | `https://image2.tree456.com/data/webp-manifest.json` | 可用图片目录与 WebP 缩略图目录 |
 
 服务端只保留同时具备完整提示词和可用封面的案例，并在内存中缓存一小时。`bigbanana.tree456.com` 的生图工作台会跳转到该提示词库，因此不重复抓取另一份数据。
-
-部署时可通过服务端环境变量 `PROMPT_LIBRARY_ORIGIN` 指定数据源根地址，默认值为 `https://image2.tree456.com`。数据源需在根地址下直接提供表格中的两个 JSON 路径；IIS 应确保这些请求命中静态 JSON 文件，而不是被 URL Rewrite 重写为 HTML 页面。上游请求最多等待 15 秒；已有进程缓存时会在上游故障期间继续返回旧数据，冷启动时则返回 502 和具体失败路径。

@@ -33,10 +33,7 @@ export async function fetchPrompts({ keyword = "", tag = [], category = ALL_PROM
         }),
     );
     const response = await fetch(`/api/prompts${params.size ? `?${params}` : ""}`);
-    if (!response.ok) {
-        const result = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(result?.error || `获取提示词失败（HTTP ${response.status}）`);
-    }
+    if (!response.ok) throw new Error("获取提示词失败");
     return (await response.json()) as PromptListResponse;
 }
 

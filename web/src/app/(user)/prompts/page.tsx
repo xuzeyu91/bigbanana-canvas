@@ -2,7 +2,7 @@
 
 import { FolderPlus, Search } from "lucide-react";
 import { type UIEvent, useEffect, useState } from "react";
-import { Alert, App, Button, Empty, Input, Spin, Tag } from "antd";
+import { App, Button, Empty, Input, Spin, Tag } from "antd";
 
 import { PromptCard } from "@/components/prompts/prompt-card";
 import { PromptDetailDialog } from "@/components/prompts/prompt-detail-dialog";
@@ -21,8 +21,6 @@ export default function PromptsPage() {
     const addAsset = useAssetStore((state) => state.addAsset);
     const copyText = useCopyText();
     const { query, items: promptItems, tags: promptTags, categories: promptCategoryOptions, total: totalPrompts } = usePromptList({ keyword: titleKeyword, tags: selectedTags, category: selectedCategory });
-    const queryError = query.error instanceof Error ? query.error.message : "获取提示词失败";
-    const showLoadError = query.isError && !query.data;
 
     useEffect(() => {
         if (query.isError) {
@@ -56,24 +54,14 @@ export default function PromptsPage() {
                 <div className="pb-8">
                     <div className="mx-auto max-w-5xl text-center">
                         <h1 className="text-4xl font-semibold tracking-tight text-stone-950 dark:text-stone-100">提示词中心</h1>
-                        <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">{showLoadError ? "提示词库暂时无法加载" : `共 ${totalPrompts} 条提示词，按标题、标签与分类快速查找灵感。`}</p>
+                        <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">共 {totalPrompts} 条提示词，按标题、标签与分类快速查找灵感。</p>
                     </div>
                     {query.isLoading ? (
                         <div className="flex h-60 items-center justify-center">
                             <Spin />
                         </div>
                     ) : null}
-                    {showLoadError ? (
-                        <Alert
-                            className="mx-auto mt-8 max-w-2xl"
-                            type="error"
-                            showIcon
-                            message="提示词库加载失败"
-                            description={queryError}
-                            action={<Button size="small" onClick={() => void query.refetch()}>重试</Button>}
-                        />
-                    ) : null}
-                    {!query.isLoading && !showLoadError ? (
+                    {!query.isLoading ? (
                         <>
                             <div className="mx-auto mt-8 w-full max-w-2xl">
                                 <Input size="large" className="w-full" prefix={<Search className="size-4 text-stone-400" />} value={titleKeyword} placeholder="按标题查询" onChange={(event) => setTitleKeyword(event.target.value)} />
@@ -109,7 +97,7 @@ export default function PromptsPage() {
                     ) : null}
                 </div>
 
-                {!query.isLoading && !showLoadError ? (
+                {!query.isLoading ? (
                     <div>
                         <div className="mx-auto grid max-w-7xl gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                             {promptItems.map((item) => (
