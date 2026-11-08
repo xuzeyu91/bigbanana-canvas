@@ -450,7 +450,329 @@ try {
         }
     });
 
-    console.log(`\n${passed} Vidu regression groups passed (offline; no billable API calls).`);
+    const omniModel = "gemini-omni-1.2-flash";
+    const museOmniConfig = (model, overrides = {}) => config(model, { videoSeconds: "5", ...overrides });
+    const videoReference = (index) => ({
+        id: `video-${index}`, name: `镜头${index}.mp4`, type: "video/mp4",
+        url: `data:video/mp4;base64,${Buffer.from(`offline-video-${index}`).toString("base64")}`,
+    });
+
+    await test("Muse and Omni are video models with per-request prices and documented limits", () => {
+        for (const [model, min, max, limit, price] of [
+            ["muse-video", 1, 60, 1, "1$/次"],
+            [omniModel, 3, 15, 10, "3$/次"],
+        ]) {
+            for (const name of [model, selectedModel(model), model.toUpperCase()]) {
+                assert.equal(configApi.modelMatchesCapability(name, "video"), true);
+                assert.equal(configApi.modelMatchesCapability(name, "text"), false);
+                assert.equal(configApi.modelMatchesCapability(name, "image"), false);
+                const profile = capabilities.resolveVideoModelCapabilities(name);
+                assert.deepEqual(profile.supportedDurations, Array.from({ length: max - min + 1 }, (_, index) => index + min));
+                assert.equal(profile.defaultDuration, 5);
+                assert.equal(profile.referenceImageLimit, limit);
+                assert.equal(profile.priceHint, price);
+                assert.equal(production.resolveVideoReferenceImageLimit(name), limit);
+            }
+            assert.ok(defaultConfig.videoModels.includes(selectedModel(model)));
+            assert.ok(defaultConfig.channels[0].models.includes(model));
+            const geminiChannel = museOmniConfig(model);
+            geminiChannel.channels[0].apiFormat = "gemini";
+            assert.equal(configApi.resolveModelRequestConfig(geminiChannel, selectedModel(model)).apiFormat, "openai");
+        }
+        assert.equal(configApi.resolveModelRequestConfig(config("gemini-3-pro-image-preview"), selectedModel("gemini-3-pro-image-preview")).apiFormat, "gemini");
+        assert.deepEqual(capabilities.resolveVideoModelCapabilities(omniModel).supportedAspectRatios, ["16:9", "9:16", "auto"]);
+        assert.deepEqual(capabilities.resolveVideoModelCapabilities("muse-video").supportedAspectRatios, ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"]);
+        assert.equal(capabilities.normalizeVideoAspectRatio("auto", omniModel), "auto");
+        assert.equal(capabilities.normalizeVideoAspectRatio("1920x1080", omniModel), "16:9");
+        assert.equal(capabilities.normalizeVideoAspectRatio("1080x1920", omniModel), "9:16");
+    });
+
+    await test("Muse single-frame JSON preserves every duration and ratio without fixed resolution", async () => {
+        const ratios = capabilities.resolveVideoModelCapabilities("muse-video").supportedAspectRatios;
+        for (let seconds = 1; seconds <= 60; seconds++) {
+            const ratio = ratios[(seconds - 1) % ratios.length];
+            axios.defaults.adapter = async (request) => {
+                assert.equal(request.url, "/api/new-api/gateway/v1/videos");
+                assert.match(request.headers.get("Content-Type"), /application\/json/);
+                assert.deepEqual(JSON.parse(request.data), {
+                    model: "muse-video", prompt: "风筝升起", seconds: String(seconds),
+                    resolution: "auto", aspect_ratio: ratio, image: image(1).dataUrl,
+                });
+                return result(request, { request_id: "task_muse" });
+            };
+            const task = await api.createVideoGenerationTask(museOmniConfig("muse-video", { videoSeconds: String(seconds), size: ratio }), " 风筝升起 ", [image(1)]);
+            assert.deepEqual(task, { id: "task_muse", provider: "openai", model: selectedModel("muse-video") });
+        }
+    });
+
+    await test("Omni explicitly distinguishes first frame, first-last frames and multi-reference modes", async () => {
+        for (const [mode, count, videoCount] of [
+            ["first_frame", 1, 0], ["first_last_frame", 2, 0],
+            ["references", 1, 0], ["references", 2, 0], ["references", 10, 0],
+            ["references", 0, 3], ["references", 10, 3],
+        ]) {
+            for (let seconds = 3; seconds <= 15; seconds++) {
+                const images = Array.from({ length: count }, (_, index) => image(index));
+                const videos = Array.from({ length: videoCount }, (_, index) => videoReference(index));
+                const ratio = ["16:9", "9:16", "auto"][(seconds - 3) % 3];
+                axios.defaults.adapter = async (request) => {
+                    const body = JSON.parse(request.data);
+                    assert.equal(body.model, omniModel);
+                    assert.equal(body.seconds, String(seconds));
+                    assert.equal(body.resolution, "720p");
+                    assert.equal(body.aspect_ratio, ratio);
+                    for (const key of ["size", "image_size", "duration", "input_reference", "image", "audio", "generate_audio", "watermark"]) assert.equal(Object.hasOwn(body, key), false);
+                    if (mode === "references") {
+                        assert.deepEqual(body.image_references, images.map((item) => item.dataUrl));
+                        assert.deepEqual(body.video_references, videos.map((item) => item.url));
+                        assert.equal(Object.hasOwn(body, "first_frame"), false);
+                        assert.equal(Object.hasOwn(body, "last_frame"), false);
+                        images.forEach((item, index) => assert.ok(body.prompt.includes(`图片${index + 1}：${item.name}`)));
+                        videos.forEach((item, index) => assert.ok(body.prompt.includes(`视频${index + 1}：${item.name}`)));
+                    } else {
+                        assert.equal(body.prompt, "风筝升起");
+                        assert.equal(body.first_frame, images[0].dataUrl);
+                        assert.equal(body.last_frame, mode === "first_last_frame" ? images[1].dataUrl : undefined);
+                        assert.equal(Object.hasOwn(body, "image_references"), false);
+                        assert.equal(Object.hasOwn(body, "video_references"), false);
+                    }
+                    return result(request, { data: { task_id: "task_omni" } });
+                };
+                const task = await api.createVideoGenerationTask(museOmniConfig(omniModel, { videoMode: mode, videoSeconds: String(seconds), size: ratio }), "风筝升起", images, videos);
+                assert.deepEqual(task, { id: "task_omni", provider: "openai", model: selectedModel(omniModel) });
+            }
+        }
+    });
+
+    await test("Muse and Omni reject unsupported or missing assets identically in preflight and API", async () => {
+        const source = { id: "video", type: CanvasNodeType.Video, title: "视频", position: { x: 0, y: 0 } };
+        for (const [model, mode, images, videos, audios] of [
+            ["muse-video", "first_frame", 0, 0, 0], ["muse-video", "first_frame", 2, 0, 0],
+            ["muse-video", "first_frame", 1, 1, 0], ["muse-video", "first_frame", 1, 0, 1],
+            [omniModel, "first_frame", 0, 0, 0], [omniModel, "first_frame", 2, 0, 0],
+            [omniModel, "first_last_frame", 1, 0, 0], [omniModel, "first_last_frame", 3, 0, 0],
+            [omniModel, "first_frame", 1, 1, 0], [omniModel, "first_last_frame", 2, 1, 0],
+            [omniModel, "references", 0, 0, 0], [omniModel, "references", 11, 0, 0],
+            [omniModel, "references", 1, 4, 0], [omniModel, "references", 1, 0, 1],
+            [omniModel, "invalid", 1, 0, 0],
+        ]) {
+            const inputCount = { text: 1, image: images, video: videos, audio: audios };
+            const expected = capabilities.museOmniReferenceError(selectedModel(model), mode, inputCount);
+            assert.ok(expected);
+            const preflight = production.preflightCanvasGeneration({
+                node: source, nodes: [source], mode: "video", model: selectedModel(model), videoMode: mode,
+                prompt: "风筝", inputCount,
+            });
+            assert.equal(preflight.canGenerate, false);
+            assert.ok(preflight.issues.some((issue) => issue.severity === "error" && issue.message === expected));
+            await assert.rejects(() => api.createVideoGenerationTask(
+                museOmniConfig(model, { videoMode: mode }), "风筝",
+                Array.from({ length: images }, (_, index) => image(index)),
+                Array.from({ length: videos }, (_, index) => videoReference(index)),
+                Array.from({ length: audios }, () => ({ id: "audio" })),
+            ), (error) => error.message === expected);
+        }
+        const saved = JSON.parse(JSON.stringify({ ...source, metadata: { videoMode: "references" } }));
+        assert.equal(production.preflightCanvasGeneration({
+            node: saved, nodes: [saved], mode: "video", prompt: "风筝", model: selectedModel(omniModel),
+            inputCount: { text: 1, image: 2, video: 1, audio: 0 },
+        }).canGenerate, true);
+    });
+
+    await test("Muse and Omni reject out-of-range/fractional duration and empty prompts before I/O", async () => {
+        for (const [model, invalid] of [["muse-video", ["0", "61", "1.5", "", "abc"]], [omniModel, ["2", "16", "3.5", "", "abc"]]]) {
+            for (const seconds of invalid) await assert.rejects(() => api.createVideoGenerationTask(museOmniConfig(model, { videoSeconds: seconds }), "风筝", [image(1)]), /秒的整数/);
+            await assert.rejects(() => api.createVideoGenerationTask(museOmniConfig(model), "  ", [image(1)]), /请输入视频提示词/);
+        }
+    });
+
+    await test("Omni accepts public and local video references and checks exact 20 MiB inline limits", async () => {
+        axios.defaults.adapter = async (request) => result(request, { id: "task_asset" });
+        const cfg = museOmniConfig(omniModel, { videoMode: "references" });
+        await api.createVideoGenerationTask(cfg, "风筝", [], [{ ...videoReference(1), url: "https://example.com/reference.mp4" }]);
+        await assert.rejects(() => api.createVideoGenerationTask(cfg, "风筝", [], [{ ...videoReference(1), url: "asset://unsupported" }]), /不支持 asset/);
+        await assert.rejects(() => api.createVideoGenerationTask(museOmniConfig("muse-video"), "风筝", [{ ...image(1), dataUrl: "data:text/plain;base64,eA==" }]), /读取失败/);
+        for (const kind of ["image", "video"]) {
+            for (const bytes of [20 * 1024 * 1024, 20 * 1024 * 1024 + 1]) {
+                const url = `data:${kind}/${kind === "image" ? "png" : "mp4"};base64,${Buffer.alloc(bytes).toString("base64")}`;
+                const request = () => api.createVideoGenerationTask(cfg, "风筝", kind === "image" ? [{ ...image(1), dataUrl: url }] : [], kind === "video" ? [{ ...videoReference(1), url }] : []);
+                if (bytes === 20 * 1024 * 1024) await request();
+                else await assert.rejects(request, /超过 20 MiB/);
+            }
+        }
+        const originalReader = globalThis.FileReader;
+        const original = globalThis.fetch;
+        try {
+            globalThis.FileReader = class {
+                readAsDataURL(blob) {
+                    blob.arrayBuffer().then((buffer) => {
+                        this.result = `data:${blob.type};base64,${Buffer.from(buffer).toString("base64")}`;
+                        this.onload();
+                    }).catch(() => this.onerror());
+                }
+            };
+            globalThis.fetch = async (url) => {
+                assert.equal(url, "blob:offline-video");
+                return new Response(new Blob(["local-video"], { type: "video/mp4" }));
+            };
+            axios.defaults.adapter = async (request) => {
+                assert.equal(JSON.parse(request.data).video_references[0], "data:video/mp4;base64,bG9jYWwtdmlkZW8=");
+                return result(request, { id: "task_local" });
+            };
+            await api.createVideoGenerationTask(cfg, "风筝", [], [{ ...videoReference(1), url: "blob:offline-video" }]);
+        } finally {
+            globalThis.fetch = original;
+            if (originalReader) globalThis.FileReader = originalReader;
+            else delete globalThis.FileReader;
+        }
+    });
+
+    await test("Muse/Omni creation handles all task IDs and surfaces malformed or failed responses", async () => {
+        for (const data of [{}, { id: 42 }, { request_id: "  " }, { status: "failed", error: { message: "upstream rejected" } }]) {
+            axios.defaults.adapter = async (request) => result(request, data);
+            await assert.rejects(() => api.createVideoGenerationTask(museOmniConfig("muse-video"), "风筝", [image(1)]), /任务 ID|upstream rejected/);
+        }
+        for (const key of ["id", "request_id", "task_id"]) {
+            axios.defaults.adapter = async (request) => result(request, { [key]: " task_native " });
+            assert.equal((await api.createVideoGenerationTask(museOmniConfig("muse-video"), "风筝", [image(1)])).id, "task_native");
+        }
+    });
+
+    await test("Muse/Omni completed tasks always download authenticated gateway content, never returned URLs", async () => {
+        for (const model of ["muse-video", omniModel]) {
+            const task = { id: "task/encoded?", provider: "openai", model: selectedModel(model) };
+            for (const status of ["done", "completed", "succeeded", "success"]) {
+                const urls = [];
+                axios.defaults.adapter = async (request) => {
+                    urls.push(request.url);
+                    assert.equal(request.headers.get("Authorization"), "Bearer offline-test-credential");
+                    if (request.url.endsWith("/content")) {
+                        assert.equal(request.headers.get("Accept"), "video/mp4");
+                        assert.equal(request.responseType, "blob");
+                        return result(request, new Blob(["offline-video"], { type: "video/mp4" }));
+                    }
+                    return result(request, { status, video_url: "/v1/videos/task/content", video: { url: "https://untrusted.example.com/video.mp4" } });
+                };
+                const state = await api.pollVideoGenerationTask(museOmniConfig(model), task);
+                assert.equal(state.status, "completed");
+                assert.equal(state.result.blob.size, 13);
+                assert.equal(Object.hasOwn(state.result, "url"), false);
+                assert.deepEqual(urls, ["/api/new-api/gateway/v1/videos/task%2Fencoded%3F", "/api/new-api/gateway/v1/videos/task%2Fencoded%3F/content"]);
+            }
+            for (const status of ["pending", "queued", "processing", "in_progress", "running"]) {
+                axios.defaults.adapter = async (request) => result(request, { status });
+                assert.deepEqual(await api.pollVideoGenerationTask(museOmniConfig(model), task), { status: "pending" });
+            }
+            for (const status of ["failed", "expired", "cancelled", "canceled", "error"]) {
+                axios.defaults.adapter = async (request) => result(request, { status, error: { message: "upstream rejected" } });
+                assert.deepEqual(await api.pollVideoGenerationTask(museOmniConfig(model), task), { status: "failed", error: "upstream rejected" });
+            }
+            for (const blob of [
+                new Blob([], { type: "video/mp4" }), new Blob(['{"error":{"message":"download failed"}}'], { type: "application/json" }),
+                new Blob(["not a video"], { type: "text/plain" }),
+            ]) {
+                axios.defaults.adapter = async (request) => result(request, request.url.endsWith("/content") ? blob : { status: "done" });
+                await assert.rejects(() => api.pollVideoGenerationTask(museOmniConfig(model), task), /返回内容为空|download failed|没有返回视频文件/);
+            }
+        }
+    });
+
+    await test("Muse/Omni polling uses a twenty-minute window and resumes IDs without paid creation", async () => {
+        for (const model of ["muse-video", omniModel]) {
+            let polls = 0;
+            axios.defaults.adapter = async (request) => {
+                assert.equal(request.method, "get");
+                polls++;
+                return result(request, { status: "processing" });
+            };
+            const task = { id: "task_long", provider: "openai", model: selectedModel(model) };
+            await assert.rejects(() => api.resumeVideoGenerationTask(museOmniConfig(model), task), /视频生成超时/);
+            assert.equal(polls, 240);
+            const controller = new AbortController();
+            controller.abort();
+            await assert.rejects(() => api.resumeVideoGenerationTask(museOmniConfig(model), task, { signal: controller.signal }), /Aborted/);
+            await assert.rejects(() => api.resumeVideoGenerationTask(museOmniConfig(model, { channels: [] }), task), /渠道不存在/);
+            axios.defaults.adapter = async (request) => {
+                assert.equal(request.method, "get");
+                return result(request, request.url.endsWith("/content") ? new Blob(["offline-video"], { type: "video/mp4" }) : { status: "done" });
+            };
+            assert.equal((await api.resumeVideoGenerationTask(museOmniConfig(model), task)).blob.size, 13);
+        }
+    });
+
+    await test("Muse/Omni settings display per-request prices, modes and compact duration selection", async () => {
+        const { createElement } = await import("react");
+        const { renderToStaticMarkup } = await import("react-dom/server");
+        const { VideoSettingsPanel } = await import("@/components/video-settings-panel");
+        const { canvasThemes } = await import("@/lib/canvas-theme");
+        for (const theme of Object.values(canvasThemes)) {
+            const muse = renderToStaticMarkup(createElement(VideoSettingsPanel, { config: museOmniConfig("muse-video"), theme, onConfigChange() {} }));
+            assert.match(muse, /1\$\/次/);
+            assert.match(muse, /按次计费/);
+            assert.doesNotMatch(muse, /按秒计费/);
+            assert.match(muse, /视频期望时长/);
+            assert.match(muse, /1-60/);
+            const omni = renderToStaticMarkup(createElement(VideoSettingsPanel, { config: museOmniConfig(omniModel, { videoMode: "references" }), theme, onConfigChange() {} }));
+            assert.match(omni, /3\$\/次/);
+            assert.match(omni, /按次计费/);
+            assert.doesNotMatch(omni, /按秒计费/);
+            for (const text of ["首帧", "首尾帧", "多参考", "自适应", "1-10"]) assert.ok(omni.includes(text));
+            assert.match(omni, />3s</);
+            assert.match(omni, />15s</);
+            assert.doesNotMatch(omni, />1s</);
+        }
+        const { CanvasConfigNodePanel } = await import("@/app/(user)/canvas/components/canvas-config-node-panel");
+        for (const [mode, label] of [["first_frame", "首帧"], ["first_last_frame", "首尾帧"], ["references", "多参考"]]) {
+            const node = JSON.parse(JSON.stringify({
+                id: "config", type: CanvasNodeType.Config, metadata: { generationMode: "video", videoModel: selectedModel(omniModel), videoMode: mode },
+            }));
+            const html = renderToStaticMarkup(createElement(CanvasConfigNodePanel, {
+                node, isRunning: false, inputSummary: { textCount: 1, imageCount: 2, videoCount: 0, audioCount: 0 },
+                onConfigChange() {}, onGenerate() {}, onStop() {}, onComposerToggle() {},
+            }));
+            assert.ok(html.includes(`${label} · `));
+        }
+    });
+
+    await test("same-origin proxy preserves all Muse/Omni native fields and protected video downloads", async () => {
+        const route = await import("@/app/api/new-api/[...path]/route");
+        const original = globalThis.fetch;
+        try {
+            for (const assets of [
+                { model: "muse-video", resolution: "auto", image: image(1).dataUrl },
+                { model: omniModel, first_frame: image(1).dataUrl },
+                { model: omniModel, first_frame: image(1).dataUrl, last_frame: image(2).dataUrl },
+                { model: omniModel, image_references: [image(1).dataUrl, image(2).dataUrl], video_references: [videoReference(1).url] },
+            ]) {
+                const body = { prompt: "风筝", seconds: "5", aspect_ratio: "16:9", ...assets };
+                globalThis.fetch = async (url, init) => {
+                    assert.equal(url, "https://api.antsk.cn/v1/videos");
+                    assert.equal(init.headers.get("Authorization"), "Bearer offline-test-credential");
+                    assert.deepEqual(await new Response(init.body).json(), body);
+                    return Response.json({ id: "task_proxy", status: "pending" });
+                };
+                const request = new Request("https://canvas.example.com/api/new-api/gateway/v1/videos", {
+                    method: "POST", headers: { Authorization: "Bearer offline-test-credential", "Content-Type": "application/json" }, body: JSON.stringify(body),
+                });
+                request.nextUrl = new URL(request.url);
+                assert.deepEqual(await (await route.POST(request, { params: Promise.resolve({ path: ["gateway", "v1", "videos"] }) })).json(), { id: "task_proxy", status: "pending" });
+            }
+            globalThis.fetch = async (url, init) => {
+                assert.equal(url, "https://api.antsk.cn/v1/videos/task_proxy/content");
+                assert.equal(init.headers.get("Authorization"), "Bearer offline-test-credential");
+                return new Response(new Blob(["offline-video"], { type: "video/mp4" }));
+            };
+            const request = new Request("https://canvas.example.com/api/new-api/gateway/v1/videos/task_proxy/content", { headers: { Authorization: "Bearer offline-test-credential" } });
+            request.nextUrl = new URL(request.url);
+            const response = await route.GET(request, { params: Promise.resolve({ path: ["gateway", "v1", "videos", "task_proxy", "content"] }) });
+            assert.equal((await response.blob()).size, 13);
+            assert.equal(response.headers.get("Content-Type"), "video/mp4");
+        } finally {
+            globalThis.fetch = original;
+        }
+    });
+
+    console.log(`\n${passed} video regression groups passed (offline; no billable API calls).`);
 } finally {
     axios.defaults.adapter = originalAdapter;
     globalThis.fetch = originalFetch;

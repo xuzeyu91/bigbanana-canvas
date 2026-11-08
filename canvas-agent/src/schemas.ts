@@ -59,6 +59,7 @@ const generationOptionsSchema = z.object({
     quality: z.string().optional(),
     count: z.number().optional(),
     seconds: z.string().optional(),
+    videoMode: z.enum(["first_frame", "first_last_frame", "references"]).optional(),
     vquality: z.string().optional(),
     generateAudio: z.string().optional(),
     watermark: z.string().optional(),

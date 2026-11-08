@@ -1690,7 +1690,7 @@ function InfiniteCanvasPage() {
             const mode = inferNodeGenerationMode(node);
             const generationConfig = buildGenerationConfig(effectiveConfig, node, mode);
             const context = applyLockedShotReferences(buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, node.metadata?.composerContent ?? node.metadata?.prompt ?? node.metadata?.content ?? ""), node, nodesRef.current);
-            return preflightCanvasGeneration({ node, nodes: nodesRef.current, mode, prompt: context.prompt, model: generationConfig.model, inputCount: { text: context.textCount, image: context.imageCount, video: context.videoCount, audio: context.audioCount } });
+            return preflightCanvasGeneration({ node, nodes: nodesRef.current, mode, prompt: context.prompt, model: generationConfig.model, videoMode: generationConfig.videoMode, inputCount: { text: context.textCount, image: context.imageCount, video: context.videoCount, audio: context.audioCount } });
         },
         [effectiveConfig],
     );
@@ -2175,6 +2175,7 @@ function InfiniteCanvasPage() {
                 mode,
                 prompt: effectivePrompt,
                 model: generationConfig.model,
+                videoMode: generationConfig.videoMode,
                 inputCount: {
                     text: generationContext.textCount,
                     image: generationContext.referenceImages.length,
@@ -2400,7 +2401,7 @@ function InfiniteCanvasPage() {
                         position: isEmptyVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
                         width: isEmptyVideoNode ? sourceNode.width : spec.width,
                         height: isEmptyVideoNode ? sourceNode.height : spec.height,
-                        metadata: { ...inheritProductionMetadata(sourceNode.metadata), prompt: effectivePrompt, status: NODE_STATUS_LOADING, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls(generationContext) },
+                        metadata: { ...inheritProductionMetadata(sourceNode.metadata), prompt: effectivePrompt, status: NODE_STATUS_LOADING, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, videoMode: generationConfig.videoMode, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls(generationContext) },
                     };
                     pendingChildIds = [videoId];
                     setNodes((prev) => (isEmptyVideoNode ? prev.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node)) : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode]));
@@ -2420,7 +2421,7 @@ function InfiniteCanvasPage() {
                             }),
                         );
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                        setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, width: videoSize.width, height: videoSize.height, position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 }, metadata: { ...node.metadata, ...videoMetadata(video), prompt: effectivePrompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls(generationContext), videoTaskId: undefined, videoTaskProvider: undefined, videoTaskModel: undefined } } : node)));
+                        setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, width: videoSize.width, height: videoSize.height, position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 }, metadata: { ...node.metadata, ...videoMetadata(video), prompt: effectivePrompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, videoMode: generationConfig.videoMode, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls(generationContext), videoTaskId: undefined, videoTaskProvider: undefined, videoTaskModel: undefined } } : node)));
                         generationRecordStatus = "success";
                     } finally {
                         if (taskKey) activeVideoTaskKeysRef.current.delete(taskKey);
@@ -2590,7 +2591,7 @@ function InfiniteCanvasPage() {
                           size: savedImageMetadata.size || effectiveConfig.size,
                           count: "1",
                       }
-                    : { ...buildGenerationConfig(effectiveConfig, sourceNode, node.type === CanvasNodeType.Text ? "text" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : "image"), count: "1" };
+                    : { ...buildGenerationConfig(effectiveConfig, sourceNode, node.type === CanvasNodeType.Text ? "text" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : "image"), videoMode: node.metadata?.videoMode || sourceNode.metadata?.videoMode || effectiveConfig.videoMode, count: "1" };
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
@@ -2621,7 +2622,7 @@ function InfiniteCanvasPage() {
             }
 
             const retryMode = node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : node.type === CanvasNodeType.Text ? "text" : "image";
-            const retryPreflight = preflightCanvasGeneration({ node, nodes: nodesRef.current, mode: retryMode, prompt, model: generationConfig.model, inputCount: { text: context?.textCount || 0, image: retryImages.length, video: context?.videoCount || 0, audio: context?.audioCount || 0 } });
+            const retryPreflight = preflightCanvasGeneration({ node, nodes: nodesRef.current, mode: retryMode, prompt, model: generationConfig.model, videoMode: generationConfig.videoMode, inputCount: { text: context?.textCount || 0, image: retryImages.length, video: context?.videoCount || 0, audio: context?.audioCount || 0 } });
             if (!retryPreflight.canGenerate) {
                 message.error(retryPreflight.issues.filter((item) => item.severity === "error").map((item) => item.message).join("；"));
                 return;
@@ -2663,7 +2664,7 @@ function InfiniteCanvasPage() {
                         }),
                     );
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, width: videoSize.width, height: videoSize.height, position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 }, metadata: { ...item.metadata, ...videoMetadata(video), prompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, videoTaskId: undefined, videoTaskProvider: undefined, videoTaskModel: undefined } } : item)));
+                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, width: videoSize.width, height: videoSize.height, position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 }, metadata: { ...item.metadata, ...videoMetadata(video), prompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, videoMode: generationConfig.videoMode, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, videoTaskId: undefined, videoTaskProvider: undefined, videoTaskModel: undefined } } : item)));
                     retryRecordStatus = "success";
                     return;
                 }
@@ -3619,6 +3620,7 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         imageBackground: node?.metadata?.imageBackground || config.imageBackground || defaultConfig.imageBackground,
         size: node?.metadata?.size || config.size || defaultConfig.size,
         videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
+        videoMode: node?.metadata?.videoMode || config.videoMode || defaultConfig.videoMode,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
         audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,

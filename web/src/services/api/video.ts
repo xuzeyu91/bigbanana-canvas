@@ -1,10 +1,10 @@
 import axios from "axios";
 
-import { dataUrlToFile } from "@/lib/image-utils";
+import { dataUrlToFile, getDataUrlByteSize } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isArkPlanBaseUrl, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { isViduGatewayModel, isViduQ4VideoModel, normalizeVideoAspectRatio, normalizeVideoDuration, resolveVideoModelCapabilities, viduReferenceImageError } from "@/lib/video-model-capabilities";
+import { isMuseVideoModel, isOmniVideoModel, isViduGatewayModel, isViduQ4VideoModel, museOmniReferenceError, normalizeVideoAspectRatio, normalizeVideoDuration, resolveVideoModelCapabilities, viduReferenceImageError } from "@/lib/video-model-capabilities";
 import { buildApiUrl, decodeChannelModel, encodeChannelModel, modelOptionName, proxyAntskUrl, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -12,6 +12,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 type VideoResponse = {
     id?: string;
     task_id?: string;
+    request_id?: string;
     status?: string;
     state?: string;
     error?: { code?: string; message?: string } | string | null;
@@ -84,8 +85,9 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 
 export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
     assertVideoTaskChannel(config, task);
-    const delayMs = task.provider === "seedance" ? 5000 : 2500;
-    const maxAttempts = task.provider === "openai" && isViduGatewayModel(task.model) ? 720 : 120;
+    const isMuseOmni = isMuseVideoModel(task.model) || isOmniVideoModel(task.model);
+    const delayMs = task.provider === "seedance" || isMuseOmni ? 5000 : 2500;
+    const maxAttempts = isMuseOmni ? 240 : task.provider === "openai" && isViduGatewayModel(task.model) ? 720 : 120;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
@@ -117,6 +119,9 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (!channel || !channel.models.includes(channelModel?.model || selectedModel)) throw new Error("视频模型所属渠道不存在，请重新选择模型渠道");
     const taskModel = encodeChannelModel(channel.id, channelModel?.model || selectedModel);
     const normalizedModel = normalizeVideoModelId(selectedModel);
+    if (isMuseVideoModel(normalizedModel) || isOmniVideoModel(normalizedModel)) {
+        return createMuseOmniTask(requestConfig, taskModel, prompt, references, videoReferences, audioReferences, options);
+    }
     if (isViduGatewayModel(normalizedModel)) {
         if (videoReferences.length || audioReferences.length) throw new Error("Vidu 当前不支持参考视频或参考音频，请只保留参考图片");
         return createViduGatewayTask(requestConfig, taskModel, prompt, references, options);
@@ -214,6 +219,61 @@ async function createViduGatewayTask(config: AiConfig, model: string, prompt: st
     }
 }
 
+async function createMuseOmniTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const referenceError = museOmniReferenceError(model, config.videoMode, { image: references.length, video: videoReferences.length, audio: audioReferences.length });
+    if (referenceError) throw new Error(referenceError);
+    const capabilities = resolveVideoModelCapabilities(model);
+    const seconds = Number(config.videoSeconds);
+    if (!Number.isInteger(seconds) || !capabilities.supportedDurations.includes(seconds)) throw new Error(`当前视频模型时长必须为 ${capabilities.supportedDurations[0]}-${capabilities.supportedDurations.at(-1)} 秒的整数`);
+    const text = prompt.trim();
+    if (!text) throw new Error("请输入视频提示词");
+    const images = await Promise.all(references.map(async (reference) => {
+        const url = await imageToDataUrl(reference);
+        assertMuseOmniAsset(url, "image", reference.name);
+        return url;
+    }));
+    const videos = await Promise.all(videoReferences.map(async (reference) => {
+        if (reference.url.startsWith("asset://")) throw new Error("Gemini Omni 参考视频需要公网 URL 或本地视频，不支持 asset:// 素材 ID");
+        const url = await resolveVideoReferenceUrl(reference);
+        assertMuseOmniAsset(url, "video", reference.name);
+        return url;
+    }));
+    const isMuse = isMuseVideoModel(model);
+    const assets = isMuse
+        ? { image: images[0] }
+        : config.videoMode === "references"
+          ? { image_references: images, video_references: videos }
+          : { first_frame: images[0], ...(config.videoMode === "first_last_frame" ? { last_frame: images[1] } : {}) };
+    const labels = [
+        ...references.map((image, index) => `图片${index + 1}：${image.name}`),
+        ...videoReferences.map((video, index) => `视频${index + 1}：${video.name}`),
+    ];
+    const payload = {
+        model: modelOptionName(model),
+        prompt: !isMuse && config.videoMode === "references" ? `参考素材编号：\n${labels.join("\n")}\n\n${text}` : text,
+        // new-api requires string seconds; the video adapter converts it to integer duration.
+        seconds: String(seconds),
+        resolution: isMuse ? "auto" : "720p",
+        aspect_ratio: normalizeVideoAspectRatio(config.size, model),
+        ...assets,
+    };
+    try {
+        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        if (isVideoTaskFailed(created.status || created.state)) throw new Error(extractApiErrorMessage(created.error) || extractApiErrorMessage(created) || "视频任务创建失败");
+        const id = created.id || created.request_id || created.task_id;
+        if (typeof id !== "string" || !id.trim()) throw new Error("视频接口没有返回有效的任务 ID");
+        return { id: id.trim(), provider: "openai", model };
+    } catch (error) {
+        throw new Error(await readAxiosError(error, "视频任务创建失败"));
+    }
+}
+
+function assertMuseOmniAsset(url: string, kind: "image" | "video", name: string) {
+    if (isPublicMediaUrl(url)) return;
+    if (!url.startsWith(`data:${kind}/`) || !url.includes(";base64,") || !getDataUrlByteSize(url)) throw new Error(`参考素材「${name}」读取失败，请重新上传`);
+    if (getDataUrlByteSize(url) > 20 * 1024 * 1024) throw new Error(`参考素材「${name}」超过 20 MiB，请压缩后重试`);
+}
+
 function videoReferenceSize(size: string) {
     const [width, height] = (normalizeVideoSize(size) || "1280x720").split("x").map(Number);
     return { width, height };
@@ -245,11 +305,18 @@ async function fitVideoReference(dataUrl: string, target: { width: number; heigh
 
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const taskId = encodeURIComponent(task.id);
+        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${taskId}`), { headers: aiHeaders(config), signal: options?.signal })).data);
         if (isVideoTaskCompleted(video.status || video.state)) {
+            if (isMuseVideoModel(task.model) || isOmniVideoModel(task.model)) {
+                const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${taskId}/content`), { headers: { ...aiHeaders(config), Accept: "video/mp4" }, responseType: "blob", timeout: 600000, signal: options?.signal });
+                await assertVideoBlob(content.data);
+                if (!content.data.type.toLowerCase().startsWith("video/")) throw new Error("视频下载失败：接口没有返回视频文件");
+                return { status: "completed", result: { blob: content.data } };
+            }
             const url = extractVideoUrl(video);
             if (url) return { status: "completed", result: await videoResultFromUrl(proxyAntskUrl(url), options) };
-            const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
+            const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${taskId}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
             const contentUrl = await extractVideoUrlFromBlob(content.data);
             if (contentUrl) return { status: "completed", result: await videoResultFromUrl(proxyAntskUrl(contentUrl), options) };
             await assertVideoBlob(content.data);
@@ -337,7 +404,7 @@ async function buildSeedanceContent(config: AiConfig, prompt: string, references
         content.push({ type: "image_url", image_url: { url: await resolveSeedanceImageUrl(config, image) }, role: "reference_image" });
     }
     for (const video of videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos)) {
-        content.push({ type: "video_url", video_url: { url: await resolveSeedanceVideoUrl(video) }, role: "reference_video" });
+        content.push({ type: "video_url", video_url: { url: await resolveVideoReferenceUrl(video) }, role: "reference_video" });
     }
     for (const audio of audioReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.audios)) {
         content.push({ type: "audio_url", audio_url: { url: await resolveSeedanceAudioUrl(audio) }, role: "reference_audio" });
@@ -353,8 +420,8 @@ async function resolveSeedanceImageUrl(config: AiConfig, image: ReferenceImage) 
     return dataUrl;
 }
 
-async function resolveSeedanceVideoUrl(video: ReferenceVideo) {
-    if (isPublicMediaUrl(video.url) || video.url.startsWith("asset://")) return video.url;
+async function resolveVideoReferenceUrl(video: ReferenceVideo) {
+    if (isPublicMediaUrl(video.url) || video.url.startsWith("asset://") || video.url.startsWith("data:video/")) return video.url;
     let blob: Blob | null = null;
     if (video.storageKey) blob = await getMediaBlob(video.storageKey);
     if (!blob && video.url?.startsWith("blob:")) blob = await (await fetch(video.url)).blob();

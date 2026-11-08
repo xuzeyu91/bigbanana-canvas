@@ -1,17 +1,17 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Switch } from "antd";
+import { Select, Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig } from "@/lib/seedance-video";
-import { normalizeVideoAspectRatio, normalizeVideoDuration, resolveVideoModelCapabilities, videoAspectRatioOptions } from "@/lib/video-model-capabilities";
+import { isOmniVideoModel, normalizeVideoAspectRatio, normalizeVideoDuration, omniVideoModeOptions, resolveVideoModelCapabilities, videoAspectRatioOptions } from "@/lib/video-model-capabilities";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { type AiConfig } from "@/stores/use-config-store";
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
+    onConfigChange: (key: "size" | "videoSeconds" | "videoMode" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -33,8 +33,22 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 {capabilities.description ? (
                     <div className="space-y-1 text-xs leading-relaxed" style={{ color: theme.node.muted }}>
                         <div>{capabilities.description}</div>
-                        <div>{capabilities.priceHint} · 按秒计费</div>
+                        <div>{capabilities.priceHint} · {capabilities.priceHint?.endsWith("/次") ? "按次计费" : "按秒计费"}</div>
                     </div>
+                ) : null}
+                {isOmniVideoModel(model) ? (
+                    <SettingGroup title="生成模式" color={theme.node.muted}>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            {omniVideoModeOptions.map((item) => (
+                                <OptionPill key={item.value} selected={config.videoMode === item.value} theme={theme} onClick={() => onConfigChange("videoMode", item.value)}>
+                                    {item.label}
+                                </OptionPill>
+                            ))}
+                        </div>
+                        <div className="text-xs leading-relaxed" style={{ color: theme.node.muted }}>
+                            {omniVideoModeOptions.find((item) => item.value === config.videoMode)?.description}
+                        </div>
+                    </SettingGroup>
                 ) : null}
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
@@ -55,13 +69,22 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 </SettingGroup>
                 <SettingGroup title="时长" color={theme.node.muted}>
-                    <div className="grid grid-cols-3 gap-2.5">
+                    {capabilities.supportedDurations.length > 16 ? (
+                        <Select
+                            className="w-full"
+                            aria-label="视频期望时长"
+                            value={String(seconds)}
+                            options={capabilities.supportedDurations.map((value) => ({ value: String(value), label: `${value}s` }))}
+                            onChange={(value) => onConfigChange("videoSeconds", value)}
+                            onMouseDown={(event) => event.stopPropagation()}
+                        />
+                    ) : <div className="grid grid-cols-3 gap-2.5">
                         {capabilities.supportedDurations.map((value) => (
                             <OptionPill key={value} selected={seconds === value} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
                                 {value}s
                             </OptionPill>
                         ))}
-                    </div>
+                    </div>}
                 </SettingGroup>
                 {supportsOutputOptions ? (
                     <SettingGroup title="输出" color={theme.node.muted}>

@@ -8,6 +8,7 @@
         "build": "next build",
         "start": "next start",
         "test:vidu": "node scripts/test-vidu.mjs",
+        "test:video": "node scripts/test-vidu.mjs",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },

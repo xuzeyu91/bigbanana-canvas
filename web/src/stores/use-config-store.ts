@@ -32,6 +32,7 @@ export type AiConfig = {
     audioSpeed: string;
     audioInstructions: string;
     videoSeconds: string;
+    videoMode: string;
     videoGenerateAudio: string;
     videoWatermark: string;
     systemPrompt: string;
@@ -64,7 +65,7 @@ export const ANTSK_UPSTREAM_BASE_URL = "https://api.antsk.cn";
 export const ANTSK_BASE_URL = "/api/new-api/gateway";
 const DEFAULT_IMAGE_MODEL_NAME = "gemini-3-pro-image-preview";
 const DEFAULT_IMAGE_MODEL_NAMES = [DEFAULT_IMAGE_MODEL_NAME, "gemini-3.1-flash-image-preview", "gpt-image-2", "gpt-image-1.5"];
-const DEFAULT_VIDEO_MODEL_NAMES = ["sora-2", "veo_3_1-fast", "viduq3-turbo", "viduq3-pro", "viduq4-preview", "doubao-seedance-2-0-fast", "doubao-seedance-2-0", "happyhorse-1.0", "happyhorse-1.1"];
+const DEFAULT_VIDEO_MODEL_NAMES = ["sora-2", "veo_3_1-fast", "muse-video", "gemini-omni-1.2-flash", "viduq3-turbo", "viduq3-pro", "viduq4-preview", "doubao-seedance-2-0-fast", "doubao-seedance-2-0", "happyhorse-1.0", "happyhorse-1.1"];
 const DEFAULT_TEXT_MODEL_NAME = "gpt-5.6-terra";
 const DEFAULT_TEXT_MODEL_NAMES = ["gpt-5.6-terra", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4", "gpt-5.5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "gemini-3.8-flash"];
 const DEFAULT_AUDIO_MODEL_NAME = "gpt-audio-1.5";
@@ -101,6 +102,7 @@ export const defaultConfig: AiConfig = {
     audioSpeed: "1",
     audioInstructions: "",
     videoSeconds: "8",
+    videoMode: "first_frame",
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
@@ -141,7 +143,7 @@ type ConfigStore = {
 
 function isVideoModelName(model: string) {
     const value = modelOptionName(model).toLowerCase();
-    return value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("vidu") || value.includes("kling") || value.includes("wan") || value.includes("hailuo") || value.includes("happyhorse");
+    return value === "gemini-omni-1.2-flash" || value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("vidu") || value.includes("kling") || value.includes("wan") || value.includes("hailuo") || value.includes("happyhorse");
 }
 
 function isImageModelName(model: string) {
@@ -378,6 +380,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
 }
 
 function inferApiFormatByModel(model: string, fallback: ApiCallFormat): ApiCallFormat {
+    if (["gemini-omni-1.2-flash", "muse-video"].includes(model.trim().toLowerCase())) return "openai";
     return model.trim().toLowerCase().includes("gemini") ? "gemini" : fallback;
 }
 
