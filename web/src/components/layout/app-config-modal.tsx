@@ -2,7 +2,8 @@
 
 import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Switch, Tabs } from "antd";
 import { Cloud, RefreshCw, Wifi } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { saveAs } from "file-saver";
 
 import { ModelPicker } from "@/components/model-picker";
 import { AccountCenterPanel } from "@/components/layout/account-center-panel";
@@ -10,6 +11,7 @@ import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
+import { createPreferenceFile, parsePreferenceFile } from "@/services/config-file";
 import { ANTSK_BASE_URL, ANTSK_UPSTREAM_BASE_URL, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, modelSelectionError, normalizeModelOptionValue, useConfigStore, type AiConfig, type ApiCallFormat, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 
 type ModelGroup = {
@@ -70,6 +72,7 @@ export function AppConfigModal() {
     const [webdavSyncStatus, setWebdavSyncStatus] = useState("");
     const [webdavDomainProgress, setWebdavDomainProgress] = useState(createWebdavDomainProgress);
     const missingApiKeyNoticeShownRef = useRef(false);
+    const preferenceFileRef = useRef<HTMLInputElement>(null);
     const config = useConfigStore((state) => state.config);
     const webdav = useConfigStore((state) => state.webdav);
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -149,6 +152,27 @@ export function AppConfigModal() {
         const next = uniqueModels(filterModelsByCapability(models.map((model) => normalizeModelOptionValue(model, config.channels)).filter(Boolean), group.capability));
         updateConfig(group.modelsKey, next);
         if (!next.includes(config[group.modelKey])) updateConfig(group.modelKey, next[0] || "");
+    };
+
+    const exportPreferences = () => {
+        const file = createPreferenceFile(config);
+        saveAs(new Blob([JSON.stringify(file, null, 2)], { type: "application/json;charset=utf-8" }), `bigbanana-生成偏好-${new Date().toISOString().slice(0, 10)}.json`);
+        message.success("已导出生成偏好");
+    };
+
+    const importPreferences = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) return;
+        try {
+            const patch = parsePreferenceFile(JSON.parse(await file.text()));
+            if (patch.canvasImageCount) patch.canvasImageCount = normalizeImageCount(patch.canvasImageCount);
+            if (patch.audioSpeed) patch.audioSpeed = normalizeAudioSpeedValue(patch.audioSpeed);
+            Object.keys(patch).forEach((key) => updateConfig(key as keyof AiConfig, patch[key as keyof typeof patch] as never));
+            message.success("已导入生成偏好");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "导入失败，请检查文件");
+        }
     };
 
     const testWebdav = async () => {
@@ -357,6 +381,18 @@ export function AppConfigModal() {
                                 <Form.Item label="原地重生成" extra="启用后，从已有图片、视频、文本或音频节点重新生成时会替换该节点内容；失败或取消会保留原结果。" className="mb-0 mt-4">
                                     <Switch checked={config.regenerateExistingNode} onChange={(value) => updateConfig("regenerateExistingNode", value)} />
                                 </Form.Item>
+                                <Form.Item label="选中自动居中" extra="点击单个节点后自动把该节点和提示词面板移入可查看区域，默认关闭。" className="mb-0 mt-4">
+                                    <Switch checked={config.autoFocusOnSelect} onChange={(value) => updateConfig("autoFocusOnSelect", value)} />
+                                </Form.Item>
+                                <section className="mt-5 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
+                                    <div className="text-sm font-semibold">生成偏好文件</div>
+                                    <div className="mt-1 text-xs leading-5 text-stone-500">只导出生成偏好，不包含账号、渠道 API Key、WebDAV 密码和模型选择，导入后不会影响当前登录与模型调用。</div>
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <Button onClick={exportPreferences}>导出偏好</Button>
+                                        <Button onClick={() => preferenceFileRef.current?.click()}>导入偏好</Button>
+                                        <input ref={preferenceFileRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => void importPreferences(event)} />
+                                    </div>
+                                </section>
                             </Form>
                         ),
                     },

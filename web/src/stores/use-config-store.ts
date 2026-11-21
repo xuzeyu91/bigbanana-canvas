@@ -48,6 +48,7 @@ export type AiConfig = {
     size: string;
     count: string;
     canvasImageCount: string;
+    autoFocusOnSelect: boolean;
 };
 
 export type WebdavSyncConfig = {
@@ -119,6 +120,7 @@ export const defaultConfig: AiConfig = {
     size: "16:9",
     count: "1",
     canvasImageCount: "3",
+    autoFocusOnSelect: false,
 };
 
 export const defaultWebdavSyncConfig: WebdavSyncConfig = {
@@ -304,6 +306,7 @@ export const useConfigStore = create<ConfigStore>()(
                         videoWatermark: config.videoWatermark || "false",
                         imageResolution: config.imageResolution || defaultConfig.imageResolution,
                         canvasImageCount: config.canvasImageCount || "3",
+                        autoFocusOnSelect: Boolean(config.autoFocusOnSelect),
                         imageModels,
                         videoModels,
                         textModels,

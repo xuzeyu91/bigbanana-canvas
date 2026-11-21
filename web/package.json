@@ -9,6 +9,7 @@
         "start": "next start",
         "test:vidu": "node scripts/test-vidu.mjs",
         "test:video": "node scripts/test-vidu.mjs",
+        "test:canvas": "node --test \"src/app/(user)/canvas/utils/canvas-helpers.test.ts\"",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },

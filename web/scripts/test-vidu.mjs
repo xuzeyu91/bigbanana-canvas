@@ -359,7 +359,7 @@ try {
         const controller = new AbortController();
         controller.abort();
         await assert.rejects(() => api.resumeVideoGenerationTask(config("viduq4-preview"), task, { signal: controller.signal }), /Aborted/);
-        await assert.rejects(() => api.resumeVideoGenerationTask(config("viduq4-preview", { channels: [] }), task), /渠道不存在/);
+        await assert.rejects(() => api.resumeVideoGenerationTask(config("viduq4-preview", { channels: [] }), task), /渠道.*(删除|不存在|找不到模型)/);
     });
 
     await test("long-running polling cleans up abort listeners after each wait", async () => {
@@ -488,7 +488,7 @@ try {
         assert.ok(!merged.videoModels.includes(removed));
         assert.ok(!merged.channels[0].models.includes("veo_3_1-fast"));
         assert.equal(merged.videoModel, selectedModel("sora-2"));
-        await assert.rejects(() => api.createVideoGenerationTask(config("veo_3_1-fast"), "风筝"), /渠道不存在/);
+        await assert.rejects(() => api.createVideoGenerationTask(config("veo_3_1-fast"), "风筝"), /渠道.*(删除|不存在|找不到模型)/);
     });
 
     await test("all model lists sort by model name, not channel IDs or selection order", () => {
@@ -747,7 +747,7 @@ try {
             const controller = new AbortController();
             controller.abort();
             await assert.rejects(() => api.resumeVideoGenerationTask(museOmniConfig(model), task, { signal: controller.signal }), /Aborted/);
-            await assert.rejects(() => api.resumeVideoGenerationTask(museOmniConfig(model, { channels: [] }), task), /渠道不存在/);
+            await assert.rejects(() => api.resumeVideoGenerationTask(museOmniConfig(model, { channels: [] }), task), /渠道.*(删除|不存在|找不到模型)/);
             axios.defaults.adapter = async (request) => {
                 assert.equal(request.method, "get");
                 return result(request, request.url.endsWith("/content") ? new Blob(["offline-video"], { type: "video/mp4" }) : { status: "done" });

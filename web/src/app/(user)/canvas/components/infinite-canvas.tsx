@@ -16,12 +16,13 @@ type InfiniteCanvasProps = {
     onViewportChange: (viewport: ViewportTransform) => void;
     onCanvasMouseDown?: (event: React.PointerEvent<HTMLDivElement>) => void;
     onCanvasDeselect?: () => void;
+    onCanvasDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
     onContextMenu?: (event: React.MouseEvent) => void;
     onDrop?: (event: React.DragEvent<HTMLDivElement>) => void;
     children: React.ReactNode;
 };
 
-export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = "lines", onViewportChange, onCanvasMouseDown, onCanvasDeselect, onContextMenu, onDrop, children }: InfiniteCanvasProps) {
+export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = "lines", onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasDoubleClick, onContextMenu, onDrop, children }: InfiniteCanvasProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const panState = useRef({
         isPanning: false,
@@ -215,6 +216,11 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
             className="relative h-full w-full select-none overflow-hidden"
             style={{ background: theme.canvas.background, cursor }}
             onPointerDown={handlePointerDown}
+            onDoubleClick={(event) => {
+                const target = event.target instanceof Element ? event.target : null;
+                if (target?.closest("[data-node-id],[data-canvas-no-zoom],[data-connection-create-menu]") || target?.closest("input,textarea,select,button,a,[contenteditable='true']")) return;
+                onCanvasDoubleClick?.(event);
+            }}
             onWheel={handleWheel}
             onContextMenu={onContextMenu}
             onDragOver={(event) => event.preventDefault()}

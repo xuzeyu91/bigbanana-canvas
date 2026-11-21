@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isComposingKeyboardEvent } from "@/lib/keyboard-event";
 import { formatBytes } from "@/lib/image-utils";
 import { resolveImagePreviewUrl } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -42,7 +43,9 @@ type CanvasNodeProps = {
     onHoverEnd: (nodeId: string) => void;
     onConnectStart: (event: React.MouseEvent, nodeId: string, handleType: "source" | "target") => void;
     onResize: (nodeId: string, width: number, height: number, position?: Position) => void;
+    onResizeStateChange?: (nodeId: string, resizing: boolean) => void;
     onContentChange: (nodeId: string, content: string) => void;
+    onTitleChange: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (node: CanvasNodeData) => void;
     onRetry?: (node: CanvasNodeData) => void;
@@ -105,7 +108,9 @@ export const CanvasNode = React.memo(function CanvasNode({
     onHoverEnd,
     onConnectStart,
     onResize,
+    onResizeStateChange,
     onContentChange,
+    onTitleChange,
     onToggleBatch,
     onSetBatchPrimary,
     onRetry,
@@ -116,6 +121,10 @@ export const CanvasNode = React.memo(function CanvasNode({
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [hovered, setHovered] = useState(false);
     const [isEditingContent, setIsEditingContent] = useState(false);
+    const [isResizingNode, setIsResizingNode] = useState(false);
+    const [titleEditing, setTitleEditing] = useState(false);
+    const [titleDraft, setTitleDraft] = useState(data.title || "");
+    const titleInputRef = useRef<HTMLInputElement>(null);
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
@@ -173,6 +182,22 @@ export const CanvasNode = React.memo(function CanvasNode({
         return () => window.removeEventListener("pointerdown", handleOutsidePointerDown, true);
     }, [isEditingContent]);
 
+    useEffect(() => {
+        if (!titleEditing) setTitleDraft(data.title || "");
+    }, [data.title, titleEditing]);
+
+    useEffect(() => {
+        if (!titleEditing) return;
+        titleInputRef.current?.focus();
+        titleInputRef.current?.select();
+    }, [titleEditing]);
+
+    const finishTitleEditing = () => {
+        const next = titleDraft.trim();
+        if (next && next !== data.title) onTitleChange(data.id, next);
+        setTitleEditing(false);
+    };
+
     const handleResizeMove = useCallback(
         (event: MouseEvent) => {
             if (!resizeRef.current.isResizing) return;
@@ -216,13 +241,17 @@ export const CanvasNode = React.memo(function CanvasNode({
 
     const handleResizeUp = useCallback(() => {
         resizeRef.current.isResizing = false;
+        setIsResizingNode(false);
+        onResizeStateChange?.(data.id, false);
         window.removeEventListener("mousemove", handleResizeMove);
         window.removeEventListener("mouseup", handleResizeUp);
-    }, [handleResizeMove]);
+    }, [data.id, handleResizeMove, onResizeStateChange]);
 
     const handleResizeMouseDown = (event: React.MouseEvent, corner: ResizeCorner) => {
         event.stopPropagation();
         event.preventDefault();
+        setIsResizingNode(true);
+        onResizeStateChange?.(data.id, true);
         resizeRef.current = {
             isResizing: true,
             corner,
@@ -267,6 +296,45 @@ export const CanvasNode = React.memo(function CanvasNode({
             }}
             onContextMenu={(event) => onContextMenu(event, data.id)}
         >
+            {!isResizingNode && (hovered || isSelected || titleEditing) ? (
+                <div className="absolute left-3 top-[-30px] z-[65] max-w-[calc(100%-24px)]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+                    {titleEditing ? (
+                        <input
+                            ref={titleInputRef}
+                            value={titleDraft}
+                            maxLength={64}
+                            className="h-7 max-w-full border-0 border-b border-dashed bg-transparent px-0 text-left text-xs font-medium outline-none"
+                            style={{ borderColor: theme.node.muted, color: theme.node.text }}
+                            onChange={(event) => setTitleDraft(event.target.value)}
+                            onBlur={finishTitleEditing}
+                            onKeyDown={(event) => {
+                                if (isComposingKeyboardEvent(event)) return;
+                                if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    finishTitleEditing();
+                                }
+                                if (event.key === "Escape") {
+                                    setTitleDraft(data.title || "");
+                                    setTitleEditing(false);
+                                }
+                            }}
+                        />
+                    ) : (
+                        <button
+                            type="button"
+                            className="block max-w-full truncate border-b border-dashed border-transparent px-0 py-0.5 text-left text-xs font-medium opacity-70 transition hover:border-current hover:opacity-100"
+                            style={{ color: theme.node.text }}
+                            title="双击重命名节点"
+                            onDoubleClick={(event) => {
+                                event.stopPropagation();
+                                setTitleEditing(true);
+                            }}
+                        >
+                            {data.title || "未命名节点"}
+                        </button>
+                    )}
+                </div>
+            ) : null}
             <div
                 className="relative h-full w-full overflow-visible rounded-3xl border-2"
                 style={{
@@ -342,7 +410,15 @@ export const CanvasNode = React.memo(function CanvasNode({
             <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} />
             <ConnectionHandleDot side="right" visible={data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onMouseDown={(event) => onConnectStart(event, data.id, "source")} />
 
-            {showPanel && renderPanel ? <div data-canvas-node-panel={data.id} className={`absolute left-1/2 top-full z-[70] ${data.type === CanvasNodeType.Video ? "w-[620px]" : "w-[580px]"} -translate-x-1/2 pt-4`}>{renderPanel(data)}</div> : null}
+            {showPanel && !isResizingNode && renderPanel ? (
+                <div
+                    data-canvas-node-panel={data.id}
+                    className={`absolute left-1/2 top-full z-[70] ${data.type === CanvasNodeType.Video ? "w-[620px]" : "w-[580px]"} pt-4`}
+                    style={{ transform: `translateX(-50%) scale(${1 / Math.max(scale, 0.01)})`, transformOrigin: "top center" }}
+                >
+                    {renderPanel(data)}
+                </div>
+            ) : null}
         </div>
     );
 });
@@ -551,7 +627,7 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
                 <span className="text-sm">空视频节点</span>
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;
+    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom data-canvas-video={node.id} />;
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
@@ -611,7 +687,7 @@ function ImageContent({
             active = false;
         };
     }, [content, storageKey, useThumbnail]);
-    const imageUrl = useThumbnail && thumbnail?.storageKey === storageKey && thumbnail.content === content ? thumbnail.url : content;
+    const imageUrl = useThumbnail && thumbnail && thumbnail.storageKey === storageKey && thumbnail.content === content ? thumbnail.url : content;
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>

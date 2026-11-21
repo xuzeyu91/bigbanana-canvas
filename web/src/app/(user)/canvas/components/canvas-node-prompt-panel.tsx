@@ -15,6 +15,7 @@ import { CanvasPromptLibrary } from "./canvas-prompt-library";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
+import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
@@ -28,10 +29,14 @@ type CanvasNodePromptPanelProps = {
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
     onStop: (nodeId: string) => void;
     mentionReferences?: CanvasResourceReference[];
+    references?: CanvasResourceReference[];
+    availableReferences?: CanvasResourceReference[];
+    onRemoveReference?: (sourceNodeId: string) => void;
+    onAddReference?: (sourceNodeId: string) => void;
     onImageSettingsOpenChange?: (open: boolean) => void;
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], onImageSettingsOpenChange }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], references = [], availableReferences = [], onRemoveReference, onAddReference, onImageSettingsOpenChange }: CanvasNodePromptPanelProps) {
     const { message } = App.useApp();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -112,6 +117,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
+            {onAddReference ? <CanvasNodeReferenceBar references={references} available={availableReferences} onRemove={(sourceNodeId) => onRemoveReference?.(sourceNodeId)} onAdd={(sourceNodeId) => onAddReference(sourceNodeId)} /> : null}
             <CanvasResourceMentionTextarea
                 value={prompt}
                 references={mentionReferences}
@@ -211,8 +217,8 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         value={prompt}
                         references={mentionReferences}
                         onChange={updatePrompt}
-                        className="thin-scrollbar min-h-[360px] w-full resize-none rounded-xl border px-4 py-3 text-sm leading-6 outline-none"
-                        containerClassName="min-h-[360px]"
+                        className="thin-scrollbar h-[min(60vh,520px)] w-full resize-none rounded-xl border px-4 py-3 text-sm leading-6 outline-none"
+                        containerClassName="h-[min(60vh,520px)]"
                         style={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text }}
                         placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
                     />
